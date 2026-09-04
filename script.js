@@ -39,25 +39,27 @@ function setMinimumScheduledTime() {
     scheduledTime.min = now.toISOString().slice(0, 16);
 }
 
-setMinimumScheduledTime();
+if (bookingForm) {
+    setMinimumScheduledTime();
 
-mapPreview.addEventListener("click", () => {
-    pickupLocation.value = "Aroma Junction";
-    pickupLocation.focus();
-});
+    mapPreview.addEventListener("click", () => {
+        pickupLocation.value = "Aroma Junction";
+        pickupLocation.focus();
+    });
 
-function createRequestId() {
-    return `AWK-${Date.now().toString(36).toUpperCase()}`;
-}
+    function createRequestId() {
+        return `AWK-${Date.now().toString(36).toUpperCase()}`;
+    }
 
-bookingForm.addEventListener("submit", (event) => {
+    bookingForm.addEventListener("submit", (event) => {
     event.preventDefault();
     formMessage.textContent = "";
 
     const requiredFields = bookingForm.querySelectorAll("[required]");
     requiredFields.forEach((field) => {
         field.setCustomValidity(field.value.trim() ? "" : "Please complete this field.");
-    });
+        });
+    }
 
     const phone = bookingForm.elements.phone;
     if (phone.value.trim() && !/^[0-9+\s()-]{7,20}$/.test(phone.value.trim())) {

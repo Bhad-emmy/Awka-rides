@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Awka Rides makes safe, reliable rides around Awka simple.">
-    <title>Awka Rides | Move around Awka with confidence</title>
+    <meta name="description" content="Awka Rides provides safe, affordable and reliable Keke transportation across Awka, day and night.">
+    <title>Awka Rides | Trusted 24/7 Keke service</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,10 +19,10 @@
         <ul id="main-menu" class="nav-links">
             <li><span class="open-badge"><span aria-hidden="true">●</span> OPEN 24/7</span></li>
             <li><a href="#home">Home</a></li>
-            <li><a href="#booking">Book Ride</a></li>
+            <li><a href="#contact">Book Ride</a></li>
             <li><a href="#why-us">Safety</a></li>
             <li><a href="#contact">Contact</a></li>
-            <li><a class="nav-cta" href="#booking">Book a ride</a></li>
+            <li><a class="nav-cta" href="tel:09064636239">Call Now</a></li>
         </ul>
     </nav>
 
@@ -33,12 +33,18 @@
                 <h1>Awka's Trusted <span>24/7 Keke Service.</span></h1>
                 <p class="hero-description">Need a ride at any hour? Awka Rides connects you with reliable tricycle riders across Awka. Book in under one minute and our dispatch team will assign an available rider.</p>
                 <div class="hero-actions">
-                    <a class="button button-primary" href="#booking">Book a ride <span aria-hidden="true">→</span></a>
-                    <button class="button button-ghost" type="button" disabled>Become a driver <small>Coming soon</small></button>
+                    <a class="button button-primary" href="#contact">Book a ride <span aria-hidden="true">→</span></a>
+                    <a class="button button-whatsapp" href="https://wa.me/2349064636239?text=Hello%20Awka%20Rides%2C%0A%0AI%27d%20like%20to%20book%20a%20Keke%20ride.%0A%0APickup%20Location%3A%0A____________________%0A%0ADestination%3A%0A____________________%0A%0APreferred%20Pickup%20Time%3A%0A____________________%0A%0AMy%20Name%3A%0A____________________%0A%0AMy%20Phone%20Number%3A%0A____________________" target="_blank" rel="noopener">Book via WhatsApp <span aria-hidden="true">↗</span></a>
+                    <button class="button button-ghost" type="button" disabled>Become a rider <small>Coming soon</small></button>
                 </div>
                 <div class="trust-row">
                     <span><span class="status-dot"></span> Dispatcher-supported</span>
                     <span>Serving Awka, Anambra</span>
+                </div>
+                <div class="hero-contact">
+                    <strong><span class="status-dot"></span> Available 24/7</strong>
+                    <a href="tel:09064636239">Call: 09064636239</a>
+                    <a href="https://wa.me/2349064636239">Call or WhatsApp Anytime</a>
                 </div>
             </div>
             <div class="hero-art reveal" aria-label="Illustration of a tricycle on a city route" role="img">
@@ -74,9 +80,18 @@
                     <h3>Keke Ride</h3>
                     <p>Affordable and convenient transportation across Awka.</p>
                     <div class="card-footer"><span>Starting fare</span><strong>To be confirmed</strong></div>
-                    <a class="card-button" href="#booking">Book Now <span aria-hidden="true">→</span></a>
+                    <a class="card-button" href="#contact">Book Now <span aria-hidden="true">→</span></a>
                 </article>
             </div>
+        </section>
+
+        <section class="section about-section" id="about">
+            <div class="about-copy reveal">
+                <p class="eyebrow">Built for Awka</p>
+                <h2>Local rides, with a human touch.</h2>
+                <p>Awka Rides is a locally focused transportation platform providing safe, affordable and reliable tricycle transportation throughout Awka. Our human dispatch team is available 24/7 to help connect you with a trusted rider.</p>
+            </div>
+            <div class="about-stat reveal"><strong>24/7</strong><span>Human dispatch support</span><small>Focused on Awka and its neighborhoods</small></div>
         </section>
 
         <section class="section muted-section" id="why-us">
@@ -106,49 +121,42 @@
             </div>
         </section>
 
-        <section class="booking-section section" id="booking">
+        <section class="section coverage-section" id="coverage">
             <div class="section-header reveal">
-                <p class="eyebrow">Ready when you are</p>
-                <h2>Book your next ride.</h2>
-                <p>Send a request in under a minute. An Awka Rides dispatcher will contact you shortly.</p>
+                <p class="eyebrow">Right where you need us</p>
+                <h2>We serve every part of Awka.</h2>
+                <p>We provide tricycle transportation across Awka and surrounding neighborhoods. These are example locations we serve.</p>
             </div>
-            <form class="booking-card reveal" id="booking-form" novalidate>
-                <div class="booking-location">
-                    <div class="location-heading"><span class="location-pin" aria-hidden="true">⌖</span><div><h3>Select Pickup Location</h3><p>Choose a nearby landmark so your rider can find you.</p></div></div>
-                    <button class="map-preview" id="map-preview" type="button" aria-label="Choose Aroma Junction as your pickup location">
-                        <span class="map-grid" aria-hidden="true"></span><span class="map-route" aria-hidden="true"></span><strong>Interactive map placeholder</strong><small>Tap to choose your location</small>
-                    </button>
-                    <label class="pickup-field">Pickup location<input type="text" name="pickup" id="pickup-location" value="Aroma Junction" required></label>
-                </div>
-                <div class="form-grid compact-form">
-                    <label>Destination<input type="text" name="destination" placeholder="Where are you going?" required></label>
-                    <label>Phone number<input type="tel" name="phone" autocomplete="tel" placeholder="0800 000 0000" required></label>
-                    <label>Full name<input type="text" name="name" autocomplete="name" placeholder="Your name" required></label>
-                </div>
-                <input type="hidden" name="vehicle" value="Keke">
-                <input type="hidden" name="pickupTiming" id="pickup-timing" value="Now">
-                <input type="hidden" name="scheduledTime" id="scheduled-time" value="">
-                <input type="hidden" name="notes" value="">
-                <p class="form-message" id="form-message" role="alert" aria-live="polite"></p>
-                <button class="button button-primary request-button" type="submit">Request Ride <span aria-hidden="true">→</span></button>
-            </form>
+            <div class="location-grid">
+                <div class="location-card reveal">Aroma Junction <span>↗</span></div>
+                <div class="location-card reveal">Unizik Junction <span>↗</span></div>
+                <div class="location-card reveal">Temporary Site <span>↗</span></div>
+                <div class="location-card reveal">Amawbia <span>↗</span></div>
+                <div class="location-card reveal">Ifite <span>↗</span></div>
+                <div class="location-card reveal">Zik Avenue <span>↗</span></div>
+            </div>
         </section>
 
-        <section class="success-card" id="success" hidden aria-live="polite">
-            <p class="eyebrow">Request received</p><h2>Your ride request has been received.</h2>
-            <p>An Awka Rides dispatcher will contact you shortly.</p><p>Please complete payment using the OPay instructions below.</p>
-            <p id="request-summary"></p>
-            <div class="payment-box"><h3>OPay payment instructions</h3><p>Complete your transfer only after the dispatcher confirms your ride.</p>
-                <dl class="payment-details"><div><dt>Account Name</dt><dd>To be provided</dd></div><div><dt>Account Number</dt><dd>To be provided</dd></div><div><dt>Bank</dt><dd>OPay</dd></div></dl>
-                <p><strong>Do not send money to an unconfirmed account.</strong></p>
+        <section class="contact-section section" id="contact">
+            <div class="section-header reveal">
+                <p class="eyebrow">We're ready to help</p>
+                <h2>Contact Awka Rides</h2>
+                <p>Need a ride immediately? Call or WhatsApp us anytime. Our dispatch team operates 24 hours a day.</p>
             </div>
-            <a class="button button-secondary" href="#booking">Book another ride</a>
+            <div class="contact-grid">
+                <a class="contact-card reveal" href="tel:09064636239"><span class="contact-card-icon">☎</span><span><small>Call Now</small><strong>09064636239</strong></span><span class="contact-arrow">→</span></a>
+                <a class="contact-card reveal" href="https://wa.me/2349064636239"><span class="contact-card-icon whatsapp-icon">◌</span><span><small>WhatsApp</small><strong>09064636239</strong></span><span class="contact-arrow">→</span></a>
+                <a class="contact-card reveal" href="tel:08160552860"><span class="contact-card-icon">☎</span><span><small>Call Now</small><strong>08160552860</strong></span><span class="contact-arrow">→</span></a>
+                <a class="contact-card reveal" href="https://wa.me/2348160552860"><span class="contact-card-icon whatsapp-icon">◌</span><span><small>WhatsApp</small><strong>08160552860</strong></span><span class="contact-arrow">→</span></a>
+                <div class="contact-card hours-card reveal"><span class="contact-card-icon">◷</span><span><small>Operating Hours</small><strong><span class="status-dot"></span> Open 24 Hours</strong></span></div>
+            </div>
         </section>
 
-        <section class="final-cta reveal"><div><p class="eyebrow">Available day and night</p><h2>Need a Ride Right Now?</h2><p>We're available day and night. Book your ride now.</p></div><a class="button button-light" href="#booking">Book Ride <span aria-hidden="true">→</span></a></section>
+        <section class="final-cta reveal"><div><p class="eyebrow">Available day and night</p><h2>Need a Ride Right Now?</h2><p>We're available 24 hours every day. Book your ride in less than one minute.</p></div><a class="button button-light" href="https://wa.me/2349064636239" target="_blank" rel="noopener">Book via WhatsApp <span aria-hidden="true">↗</span></a></section>
     </main>
 
-    <footer id="contact"><div><a class="logo" href="#home"><span class="logo-mark" aria-hidden="true">↗</span><span>AWKA <strong>RIDES</strong></span></a><p>Safe, reliable rides around Awka.</p></div><div class="footer-contact"><a href="tel:+2340000000000">Phone</a><a href="https://wa.me/2340000000000">WhatsApp</a><a href="mailto:hello@awkarides.com">Email</a></div><div class="hours"><span class="status-dot"></span><strong>24 Hours</strong><small>Operating hours</small></div><small>© 2026 Awka Rides. Built for Awka.</small></footer>
+    <footer><div><a class="logo" href="#home"><span class="logo-mark" aria-hidden="true">↗</span><span>AWKA <strong>RIDES</strong></span></a><p>Safe, reliable rides around Awka.</p></div><div class="footer-contact"><a href="tel:09064636239">☎ 09064636239</a><a href="tel:08160552860">☎ 08160552860</a><a href="https://wa.me/2349064636239">◌ WhatsApp Available</a></div><div class="hours"><span class="status-dot"></span><strong>Open 24 Hours</strong><small>Serving Awka, Anambra State</small></div><small>© 2026 Awka Rides. Built for Awka.</small></footer>
+    <div class="floating-actions" aria-label="Quick contact actions"><a class="floating-whatsapp" href="https://wa.me/2349064636239" aria-label="Chat on WhatsApp">◌ <span>Chat on WhatsApp</span></a><a class="floating-call" href="tel:09064636239" aria-label="Call Now">☎ <span>Call Now</span></a></div>
     <script src="script.js"></script>
 </body>
 </html>
