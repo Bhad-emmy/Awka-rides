@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Book a safe and reliable Keke ride with Awka Rides.">
+    <title>Book Your Keke Ride | Awka Rides</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="booking-page">
+    <nav class="site-nav" aria-label="Main navigation">
+        <a class="logo" href="index.html#home" aria-label="Awka Rides home"><span class="logo-mark" aria-hidden="true">↗</span><span>AWKA <strong>RIDES</strong></span></a>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-menu" aria-label="Open menu"><span></span><span></span><span></span></button>
+        <ul id="main-menu" class="nav-links">
+            <li><span class="open-badge"><span aria-hidden="true">●</span> OPEN 24/7</span></li>
+            <li><a href="index.html#home">Home</a></li>
+            <li><a href="booking.html" aria-current="page">Book Ride</a></li>
+            <li><a href="index.html#why-us">Safety</a></li>
+            <li><a href="index.html#contact">Contact</a></li>
+            <li><a class="nav-cta" href="tel:09064636239">Call Now</a></li>
+        </ul>
+    </nav>
+
+    <main>
+        <section class="booking-hero">
+            <div class="section-header reveal">
+                <p class="eyebrow">Awka Rides · Keke service</p>
+                <h1>Book Your Keke Ride</h1>
+                <p>Complete the form below and our dispatcher will connect you with an available rider as quickly as possible.</p>
+            </div>
+        </section>
+
+        <section class="booking-layout section">
+            <div>
+                <form class="booking-card booking-form-page reveal" id="booking-form" novalidate>
+                    <div class="form-grid">
+                        <label>Full Name *<input type="text" name="name" autocomplete="name" required></label>
+                        <label>Phone Number *<input type="tel" name="phone" autocomplete="tel" placeholder="09064636239" required></label>
+                        <label>Pickup Location *<input type="text" name="pickup" id="pickup-location" placeholder="e.g. Aroma Junction" required></label>
+                        <label>Destination *<input type="text" name="destination" placeholder="Where are you going?" required></label>
+                        <label>Pickup Time *
+                            <select name="pickupTiming" id="pickup-timing" required><option value="">Select pickup time</option><option value="Now">Now</option><option value="Schedule">Schedule</option></select>
+                        </label>
+                        <label id="scheduled-time-field" hidden>Date &amp; Time<input type="datetime-local" name="scheduledTime" id="scheduled-time"></label>
+                        <label>Number of Passengers *
+                            <select name="passengers" required><option value="">Select passengers</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+                        </label>
+                        <label>Additional Notes <span class="optional">(optional)</span><textarea name="notes" rows="3" placeholder="Landmark or anything your rider should know"></textarea></label>
+                    </div>
+                    <input type="hidden" name="vehicle" value="Keke">
+                    <p class="form-message" id="form-message" role="alert" aria-live="polite"></p>
+                    <button class="button button-primary request-button" type="submit">Request Ride <span aria-hidden="true">→</span></button>
+                </form>
+
+                <section class="map-card reveal" aria-labelledby="map-heading">
+                    <div class="location-heading"><span class="location-pin" aria-hidden="true">⌖</span><div><h2 id="map-heading">Select Your Pickup Location</h2><p>Map support will be added in a future version.</p></div></div>
+                    <div class="map-preview booking-map" role="img" aria-label="Map placeholder for future Leaflet and OpenStreetMap integration"><span class="map-grid" aria-hidden="true"></span><span class="map-route" aria-hidden="true"></span><strong>Interactive map placeholder</strong><small>Leaflet + OpenStreetMap coming soon</small></div>
+                </section>
+            </div>
+
+            <aside>
+                <section class="summary-card reveal" aria-labelledby="summary-heading">
+                    <p class="eyebrow">Review request</p><h2 id="summary-heading">Booking Summary</h2>
+                    <dl class="summary-list">
+                        <div><dt>Name</dt><dd id="summary-name">Not provided</dd></div>
+                        <div><dt>Pickup</dt><dd id="summary-pickup">Not provided</dd></div>
+                        <div><dt>Destination</dt><dd id="summary-destination">Not provided</dd></div>
+                        <div><dt>Ride Type</dt><dd>Keke</dd></div>
+                        <div><dt>Pickup Time</dt><dd id="summary-time">Not provided</dd></div>
+                    </dl>
+                    <a class="button button-whatsapp summary-whatsapp" id="whatsapp-booking" href="https://wa.me/2349064636239" target="_blank" rel="noopener">Book via WhatsApp <span aria-hidden="true">↗</span></a>
+                </section>
+                <section class="safety-card reveal"><h2>Your Safety Matters</h2><ul><li>Verified riders</li><li>24-hour dispatch</li><li>Customer support</li><li>Reliable transportation</li></ul></section>
+                <section class="support-card reveal"><h2>Contact Support</h2><p>Need immediate assistance?</p><a href="tel:09064636239">☎ 09064636239</a><a href="https://wa.me/2349064636239">💬 WhatsApp</a><a href="tel:08160552860">☎ 08160552860</a><a href="https://wa.me/2348160552860">💬 WhatsApp</a></section>
+            </aside>
+        </section>
+    </main>
+    <script src="script.js"></script>
+</body>
+</html>
