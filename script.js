@@ -97,8 +97,26 @@ if (bookingForm) {
             bookingForm.reportValidity();
             return;
         }
-        localStorage.setItem("awkaRidesLatestBooking", JSON.stringify(Object.fromEntries(new FormData(bookingForm))));
-        formMessage.textContent = "Your request is ready for dispatcher review. Please call or WhatsApp us to confirm.";
-        updateSummary();
+        const booking = Object.fromEntries(new FormData(bookingForm));
+        const sequence = Number(localStorage.getItem("awkaRidesBookingSequence") || "0") + 1;
+        const reference = `AR-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
+        booking.reference = reference;
+        localStorage.setItem("awkaRidesBookingSequence", String(sequence));
+        localStorage.setItem("awkaRidesLatestBooking", JSON.stringify(booking));
+        window.location.href = "success.html";
     });
+}
+
+const savedBooking = localStorage.getItem("awkaRidesLatestBooking");
+const successReference = document.querySelector("#success-reference");
+if (savedBooking && successReference) {
+    const booking = JSON.parse(savedBooking);
+    const display = (value) => value || "Not provided";
+    document.querySelector("#success-reference").textContent = display(booking.reference);
+    document.querySelector("#success-name").textContent = display(booking.name);
+    document.querySelector("#success-pickup").textContent = display(booking.pickup);
+    document.querySelector("#success-destination").textContent = display(booking.destination);
+    document.querySelector("#success-time").textContent = booking.pickupTiming === "Schedule" ? display(booking.scheduledTime).replace("T", " ") : display(booking.pickupTiming);
+    const message = `Hello Awka Rides,\n\nI submitted a Keke ride request.\n\nBooking Reference: ${display(booking.reference)}\nName: ${display(booking.name)}\nPickup: ${display(booking.pickup)}\nDestination: ${display(booking.destination)}\nPickup Time: ${display(booking.pickupTiming === "Schedule" ? booking.scheduledTime : booking.pickupTiming)}`;
+    document.querySelector("#success-whatsapp").href = `https://wa.me/2349064636239?text=${encodeURIComponent(message)}`;
 }
