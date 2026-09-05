@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="awka-api-base" content="/api">
     <meta name="description" content="Book a safe and reliable Keke ride with Awka Rides.">
     <title>Book Your Keke Ride | Awka Rides</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 </head>
 <body class="booking-page">
     <nav class="site-nav" aria-label="Main navigation">
@@ -48,13 +50,28 @@
                         <label>Additional Notes <span class="optional">(optional)</span><textarea name="notes" rows="3" placeholder="Landmark or anything your rider should know"></textarea></label>
                     </div>
                     <input type="hidden" name="vehicle" value="Keke">
+                    <input type="hidden" name="pickupLatitude">
+                    <input type="hidden" name="pickupLongitude">
+                    <input type="hidden" name="destinationLatitude">
+                    <input type="hidden" name="destinationLongitude">
                     <p class="form-message" id="form-message" role="alert" aria-live="polite"></p>
                     <button class="button button-primary request-button" type="submit">Request Ride <span aria-hidden="true">→</span></button>
                 </form>
 
                 <section class="map-card reveal" aria-labelledby="map-heading">
-                    <div class="location-heading"><span class="location-pin" aria-hidden="true">⌖</span><div><h2 id="map-heading">Select Your Pickup Location</h2><p>Map support will be added in a future version.</p></div></div>
-                    <div class="map-preview booking-map" role="img" aria-label="Map placeholder for future Leaflet and OpenStreetMap integration"><span class="map-grid" aria-hidden="true"></span><span class="map-route" aria-hidden="true"></span><strong>Interactive map placeholder</strong><small>Leaflet + OpenStreetMap coming soon</small></div>
+                    <div class="location-heading"><span class="location-pin" aria-hidden="true">⌖</span><div><h2 id="map-heading">Select a Location</h2><p>Optional: use the map to capture pickup and destination coordinates.</p></div></div>
+                    <div class="map-controls" aria-label="Map location controls">
+                        <button class="button button-secondary map-select-button active" id="select-pickup-location" type="button">Select Pickup Location</button>
+                        <button class="button button-secondary map-select-button" id="select-destination-location" type="button">Select Destination Location</button>
+                    </div>
+                    <p class="map-selection-status" id="map-selection-status" role="status">Selecting pickup: click the map to place a marker.</p>
+                    <div class="booking-map" id="booking-map" role="application" aria-label="Leaflet map for selecting optional ride locations"></div>
+                    <div class="map-location-values">
+                        <span id="pickup-coordinates">Pickup: not selected</span>
+                        <button class="text-button" id="reset-pickup-location" type="button">Reset pickup</button>
+                        <span id="destination-coordinates">Destination: not selected</span>
+                        <button class="text-button" id="reset-destination-location" type="button">Reset destination</button>
+                    </div>
                 </section>
             </div>
 
@@ -75,6 +92,7 @@
             </aside>
         </section>
     </main>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="script.js"></script>
 </body>
 </html>

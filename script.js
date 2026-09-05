@@ -1,5 +1,6 @@
 const menuToggle = document.querySelector(".menu-toggle");
 const navLinks = document.querySelector("#main-menu");
+const API_BASE = document.querySelector('meta[name="awka-api-base"]')?.content || "/api";
 
 if (menuToggle && navLinks) {
     menuToggle.addEventListener("click", () => {
@@ -37,6 +38,11 @@ if (bookingForm) {
     const scheduledTime = document.querySelector("#scheduled-time");
     const formMessage = document.querySelector("#form-message");
     const whatsappBooking = document.querySelector("#whatsapp-booking");
+    const mapElement = document.querySelector("#booking-map");
+    const pickupLatitude = bookingForm.elements.pickupLatitude;
+    const pickupLongitude = bookingForm.elements.pickupLongitude;
+    const destinationLatitude = bookingForm.elements.destinationLatitude;
+    const destinationLongitude = bookingForm.elements.destinationLongitude;
 
     if (scheduledTime) {
         const now = new Date();
@@ -86,7 +92,70 @@ if (bookingForm) {
     Object.values(fields).forEach((field) => field?.addEventListener("change", updateSummary));
     updateSummary();
 
-    bookingForm.addEventListener("submit", (event) => {
+    if (mapElement && window.L) {
+        const map = L.map(mapElement).setView([6.2088, 7.0719], 13);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(map);
+        let selectionMode = "pickup";
+        let pickupMarker;
+        let destinationMarker;
+        const pickupButton = document.querySelector("#select-pickup-location");
+        const destinationButton = document.querySelector("#select-destination-location");
+        const selectionStatus = document.querySelector("#map-selection-status");
+        const pickupCoordinates = document.querySelector("#pickup-coordinates");
+        const destinationCoordinates = document.querySelector("#destination-coordinates");
+
+        function setSelectionMode(mode) {
+            selectionMode = mode;
+            pickupButton.classList.toggle("active", mode === "pickup");
+            destinationButton.classList.toggle("active", mode === "destination");
+            selectionStatus.textContent = mode === "pickup"
+                ? "Selecting pickup: click the map to place a marker."
+                : "Selecting destination: click the map to place a marker.";
+        }
+
+        function setLocation(location, latitude, longitude) {
+            const coordinates = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+            if (location === "pickup") {
+                pickupLatitude.value = latitude;
+                pickupLongitude.value = longitude;
+                if (pickupMarker) pickupMarker.setLatLng([latitude, longitude]);
+                else pickupMarker = L.marker([latitude, longitude]).addTo(map).bindPopup("Pickup location").openPopup();
+                pickupCoordinates.textContent = `Pickup: ${coordinates}`;
+            } else {
+                destinationLatitude.value = latitude;
+                destinationLongitude.value = longitude;
+                if (destinationMarker) destinationMarker.setLatLng([latitude, longitude]);
+                else destinationMarker = L.marker([latitude, longitude]).addTo(map).bindPopup("Destination location").openPopup();
+                destinationCoordinates.textContent = `Destination: ${coordinates}`;
+            }
+        }
+
+        function resetLocation(location) {
+            if (location === "pickup") {
+                pickupLatitude.value = "";
+                pickupLongitude.value = "";
+                if (pickupMarker) map.removeLayer(pickupMarker);
+                pickupMarker = null;
+                pickupCoordinates.textContent = "Pickup: not selected";
+            } else {
+                destinationLatitude.value = "";
+                destinationLongitude.value = "";
+                if (destinationMarker) map.removeLayer(destinationMarker);
+                destinationMarker = null;
+                destinationCoordinates.textContent = "Destination: not selected";
+            }
+        }
+
+        pickupButton.addEventListener("click", () => setSelectionMode("pickup"));
+        destinationButton.addEventListener("click", () => setSelectionMode("destination"));
+        document.querySelector("#reset-pickup-location").addEventListener("click", () => resetLocation("pickup"));
+        document.querySelector("#reset-destination-location").addEventListener("click", () => resetLocation("destination"));
+        map.on("click", (event) => setLocation(selectionMode, event.latlng.lat, event.latlng.lng));
+    }
+
+    bookingForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         formMessage.textContent = "";
         bookingForm.querySelectorAll("[required]").forEach((field) => field.setCustomValidity(field.value.trim() ? "" : "Please complete this field."));
@@ -101,9 +170,31 @@ if (bookingForm) {
         const sequence = Number(localStorage.getItem("awkaRidesBookingSequence") || "0") + 1;
         const reference = `AR-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
         booking.reference = reference;
-        localStorage.setItem("awkaRidesBookingSequence", String(sequence));
-        localStorage.setItem("awkaRidesLatestBooking", JSON.stringify(booking));
-        window.location.href = "success.html";
+        const submitButton = bookingForm.querySelector("button[type='submit']");
+        submitButton.disabled = true;
+        submitButton.setAttribute("aria-busy", "true");
+        formMessage.textContent = "Submitting your ride request...";
+
+        try {
+            const response = await fetch(`${API_BASE}/rides`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(booking)
+            });
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.detail || "The ride request could not be submitted.");
+            }
+            localStorage.setItem("awkaRidesBookingSequence", String(sequence));
+            localStorage.setItem("awkaRidesLatestBooking", JSON.stringify(booking));
+            window.location.href = "success.html";
+        } catch (error) {
+            formMessage.textContent = error instanceof TypeError
+                ? "Unable to reach the booking service. Please check your connection and try again."
+                : error.message;
+            submitButton.disabled = false;
+            submitButton.removeAttribute("aria-busy");
+        }
     });
 }
 

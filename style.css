@@ -50,7 +50,8 @@ body,button,input,select,textarea{font-family:'DM Sans',Arial,sans-serif}
 .booking-form-page{margin-bottom:24px}
 .map-card,.summary-card,.safety-card,.support-card{margin-bottom:18px;border:1px solid var(--line);border-radius:var(--radius);padding:24px;background:#fff;box-shadow:0 14px 38px rgba(15,23,42,.05)}
 .map-card h2,.summary-card h2,.safety-card h2,.support-card h2{font-family:'Space Grotesk',sans-serif;font-size:22px}
-.booking-map{min-height:250px}
+.booking-map{height:320px;min-height:250px;margin-bottom:14px;border:1px solid #b7e4c1;border-radius:12px;overflow:hidden}
+.map-controls{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}.map-select-button{padding:10px 14px;font-size:13px}.map-select-button.active{background:var(--green);color:#fff}.map-selection-status{margin-bottom:12px;color:var(--muted);font-size:13px}.map-location-values{display:grid;grid-template-columns:1fr auto;gap:8px 14px;align-items:center;color:var(--muted);font-size:12px}.text-button{border:0;padding:0;background:transparent;color:var(--green);font-size:12px;font-weight:700;cursor:pointer}
 .summary-list{margin:24px 0}.summary-list div{display:flex;justify-content:space-between;gap:20px;padding:13px 0;border-bottom:1px solid var(--line);font-size:13px}.summary-list dt{color:var(--muted)}.summary-list dd{font-weight:700;text-align:right}.summary-whatsapp{width:100%}
 .safety-card ul{display:grid;gap:12px;margin-top:18px;padding-left:19px;color:var(--muted);font-size:14px}.support-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.support-card p{color:var(--muted);font-size:14px}.support-card a{color:var(--green);font-weight:700;text-decoration:none}
 @media(max-width:800px){.booking-layout{grid-template-columns:1fr}.booking-hero{padding-top:55px}}
