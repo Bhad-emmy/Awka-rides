@@ -84,7 +84,7 @@ if (bookingForm) {
         summaries.time.textContent = fields.pickupTiming.value === "Schedule" && fields.scheduledTime.value
             ? fields.scheduledTime.value.replace("T", " ")
             : valueOf(fields.pickupTiming);
-        const message = `Hello Awka Rides,\n\nI'd like to book a Keke ride.\n\nName: ${valueOf(fields.name)}\nPhone: ${valueOf(fields.phone)}\nPickup: ${valueOf(fields.pickup)}\nDestination: ${valueOf(fields.destination)}\nPickup Time: ${summaries.time.textContent}`;
+        const message = `Hello Ọka-Rides,\n\nI'd like to book a Keke ride.\n\nName: ${valueOf(fields.name)}\nPhone: ${valueOf(fields.phone)}\nPickup: ${valueOf(fields.pickup)}\nDestination: ${valueOf(fields.destination)}\nPickup Time: ${summaries.time.textContent}`;
         whatsappBooking.href = `https://wa.me/2349064636239?text=${encodeURIComponent(message)}`;
     }
 
@@ -208,6 +208,6 @@ if (savedBooking && successReference) {
     document.querySelector("#success-pickup").textContent = display(booking.pickup);
     document.querySelector("#success-destination").textContent = display(booking.destination);
     document.querySelector("#success-time").textContent = booking.pickupTiming === "Schedule" ? display(booking.scheduledTime).replace("T", " ") : display(booking.pickupTiming);
-    const message = `Hello Awka Rides,\n\nI submitted a Keke ride request.\n\nBooking Reference: ${display(booking.reference)}\nName: ${display(booking.name)}\nPickup: ${display(booking.pickup)}\nDestination: ${display(booking.destination)}\nPickup Time: ${display(booking.pickupTiming === "Schedule" ? booking.scheduledTime : booking.pickupTiming)}`;
+    const message = `Hello Ọka-Rides,\n\nI submitted a Keke ride request.\n\nBooking Reference: ${display(booking.reference)}\nName: ${display(booking.name)}\nPickup: ${display(booking.pickup)}\nDestination: ${display(booking.destination)}\nPickup Time: ${display(booking.pickupTiming === "Schedule" ? booking.scheduledTime : booking.pickupTiming)}`;
     document.querySelector("#success-whatsapp").href = `https://wa.me/2349064636239?text=${encodeURIComponent(message)}`;
 }
