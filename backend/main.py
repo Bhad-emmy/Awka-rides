@@ -11,7 +11,7 @@ from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Body, Cookie, Depends, FastAPI, HTTPException, Path, Query, Request, Response
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
