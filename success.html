@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="awka-api-base" content="/api">
     <meta name="description" content="Your Ọka-Rides booking request has been received.">
     <title>Ride Request Received | Ọka-Rides</title>
     <link rel="stylesheet" href="style.css">
@@ -29,6 +30,16 @@
                 <div><dt>Destination</dt><dd id="success-destination">-</dd></div>
                 <div><dt>Pickup Time</dt><dd id="success-time">-</dd></div>
             </dl>
+        </section>
+        <section class="payment-box reveal" id="paystack-payment" aria-labelledby="payment-heading">
+            <p class="eyebrow">Secure payment</p>
+            <h2 id="payment-heading">Pay your confirmed fare</h2>
+            <p id="payment-message">Your dispatcher will confirm the fare after assigning a rider.</p>
+            <div class="payment-details">
+                <div><dt>Fare</dt><dd id="paystack-fare">Not confirmed</dd></div>
+                <div><dt>Payment status</dt><dd id="paystack-status">Checking...</dd></div>
+            </div>
+            <button class="button button-primary" id="paystack-button" type="button" disabled>Pay securely with Paystack</button>
         </section>
         <section class="next-steps-card reveal"><h2>What happens next?</h2><p>We'll contact you using the phone number provided and connect you with your assigned rider.</p></section>
         <section class="status-card reveal" aria-labelledby="status-heading"><h2 id="status-heading">Ride Status</h2><ol class="status-timeline"><li class="current"><span>✓</span>Booking Received</li><li><span>○</span>Dispatcher Reviewing</li><li><span>○</span>Rider Assigned</li><li><span>○</span>Rider On The Way</li><li><span>○</span>Trip Completed</li></ol></section>
