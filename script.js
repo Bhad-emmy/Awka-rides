@@ -64,7 +64,8 @@ if (bookingForm) {
         destination: bookingForm.elements.destination,
         pickupTiming,
         scheduledTime,
-        passengers: bookingForm.elements.passengers
+        passengers: bookingForm.elements.passengers,
+        email: bookingForm.elements.email
     };
     const summaries = {
         name: document.querySelector("#summary-name"),
@@ -199,6 +200,70 @@ if (bookingForm) {
 }
 
 const savedBooking = localStorage.getItem("awkaRidesLatestBooking");
+const successApiBase = document.querySelector('meta[name="awka-api-base"]')?.content || "/api";
+const paystackPayment = document.querySelector("#paystack-payment");
+const paystackButton = document.querySelector("#paystack-button");
+const paystackFare = document.querySelector("#paystack-fare");
+const paystackStatus = document.querySelector("#paystack-status");
+const paystackMessage = document.querySelector("#payment-message");
+
+async function loadPaystackPayment(booking) {
+    if (!paystackPayment || !booking?.reference) return;
+    try {
+        const response = await fetch(`${successApiBase}/rides/public/${encodeURIComponent(booking.reference)}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Unable to check payment status.");
+        if (data.fareConfirmed && data.fare) {
+            paystackFare.textContent = `₦${Number(data.fare).toLocaleString()}`;
+        }
+        if (data.status === "PAID" || data.paymentStatus === "PAID") {
+            paystackStatus.textContent = "PAID";
+            paystackMessage.textContent = "Payment received. Your ride can now proceed.";
+            paystackButton.disabled = true;
+            paystackButton.textContent = "Payment received";
+            return;
+        }
+        if (data.status === "DRIVER ASSIGNED" && data.fareConfirmed) {
+            paystackStatus.textContent = "Payment pending";
+            paystackMessage.textContent = "Your rider and fare have been confirmed. You can now pay securely.";
+            paystackButton.disabled = false;
+        } else {
+            paystackStatus.textContent = data.status || "Pending";
+            paystackMessage.textContent = "Your dispatcher will confirm the fare after assigning a rider.";
+            paystackButton.disabled = true;
+        }
+    } catch (error) {
+        paystackStatus.textContent = "Unavailable";
+        paystackMessage.textContent = error.message;
+        paystackButton.disabled = true;
+    }
+}
+
+if (paystackButton) {
+    paystackButton.addEventListener("click", async () => {
+        const booking = savedBooking ? JSON.parse(savedBooking) : null;
+        if (!booking?.reference || !booking.email) {
+            paystackMessage.textContent = "A customer email is required before payment can start.";
+            return;
+        }
+        paystackButton.disabled = true;
+        paystackButton.textContent = "Opening Paystack...";
+        try {
+            const response = await fetch(`${successApiBase}/payments/paystack/initialize`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({reference: booking.reference, email: booking.email})
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.authorizationUrl) throw new Error(data.detail || "Unable to start Paystack payment.");
+            window.location.href = data.authorizationUrl;
+        } catch (error) {
+            paystackMessage.textContent = error.message;
+            paystackButton.disabled = false;
+            paystackButton.textContent = "Pay securely with Paystack";
+        }
+    });
+}
 const successReference = document.querySelector("#success-reference");
 if (savedBooking && successReference) {
     const booking = JSON.parse(savedBooking);
@@ -210,4 +275,13 @@ if (savedBooking && successReference) {
     document.querySelector("#success-time").textContent = booking.pickupTiming === "Schedule" ? display(booking.scheduledTime).replace("T", " ") : display(booking.pickupTiming);
     const message = `Hello Ọka-Rides,\n\nI submitted a Keke ride request.\n\nBooking Reference: ${display(booking.reference)}\nName: ${display(booking.name)}\nPickup: ${display(booking.pickup)}\nDestination: ${display(booking.destination)}\nPickup Time: ${display(booking.pickupTiming === "Schedule" ? booking.scheduledTime : booking.pickupTiming)}`;
     document.querySelector("#success-whatsapp").href = `https://wa.me/2349064636239?text=${encodeURIComponent(message)}`;
+}
+
+const paystackQuery = new URLSearchParams(window.location.search);
+if (successReference && savedBooking) {
+    loadPaystackPayment(JSON.parse(savedBooking));
+}
+if (paystackQuery.get("payment") === "success") {
+    if (paystackMessage) paystackMessage.textContent = "Paystack returned you after payment. Checking the verified payment status...";
+    setTimeout(() => savedBooking && loadPaystackPayment(JSON.parse(savedBooking)), 500);
 }
