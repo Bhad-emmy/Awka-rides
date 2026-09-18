@@ -336,6 +336,19 @@ def paystack_signature_is_valid(raw_body: bytes, supplied_signature: str | None,
     expected = hmac.new(secret.encode(), raw_body, hashlib.sha512).hexdigest()
     return hmac.compare_digest(expected, supplied_signature)
 
+def paystack_amount_matches(paystack_amount: int, fare_naira: float) -> bool:
+    try:
+        return paystack_amount == naira_to_kobo(float(fare_naira))
+    except (TypeError, ValueError):
+        return False
+
+def paystack_payment_already_applied(fields: dict, reference: str) -> bool:
+    return (
+        fields.get("Payment Status") == "PAID"
+        and fields.get("Payment Reference") == reference
+        and fields.get("Status") == "PAID"
+    )
+
 async def find_ride_by_reference(reference: str, api_key: str, base_id: str, table_name: str):
     escaped = reference.replace("'", "''")
     response = await airtable_request(
@@ -374,7 +387,7 @@ async def verify_paystack_transaction(reference: str, expected_amount_kobo: int,
 
 async def mark_paystack_paid(record: dict, paystack_data: dict, api_key: str, base_id: str, table_name: str):
     fields = record.get("fields", {})
-    if fields.get("Status") == "PAID" and fields.get("Payment Reference") == paystack_data.get("reference"):
+    if paystack_payment_already_applied(fields, paystack_data.get("reference", "")):
         return False
     if fields.get("Payment Status") == "PAID":
         if fields.get("Payment Reference") == paystack_data.get("reference"):
