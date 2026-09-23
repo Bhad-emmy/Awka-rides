@@ -85,7 +85,7 @@ class FareUpdate(BaseModel):
 class PaymentUpdate(BaseModel):
     paymentStatus: Literal["PAID", "FAILED"]
     paymentReference: str = ""
-    paymentMethod: Literal["OPAY", "CASH", "PAYSTACK"]
+    paymentMethod: Literal["OPAY", "PAYSTACK"]
 
 
 class RideStatusUpdate(BaseModel):
