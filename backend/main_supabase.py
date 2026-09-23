@@ -6,7 +6,6 @@ import hmac
 import json
 import secrets
 import time
-import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -668,7 +667,7 @@ async def create_ride(ride: RideRequest):
 
     # Booking references are generated server-side so they are unique across
     # phones, browsers, desktop sessions, and simultaneous bookings.
-    reference = f"OKA-{uuid.uuid4().hex.upper()}"
+    reference = f"OKA-{secrets.token_hex(4).upper()}"
 
     payload = {
         "reference": reference,
