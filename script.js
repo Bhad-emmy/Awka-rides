@@ -168,6 +168,11 @@ if (bookingForm) {
             return;
         }
         const booking = Object.fromEntries(new FormData(bookingForm));
+        // Optional map coordinates are represented by empty form values when no marker is selected.
+        // Convert those empty strings to null so FastAPI accepts the optional float fields.
+        ["pickupLatitude", "pickupLongitude", "destinationLatitude", "destinationLongitude"].forEach((field) => {
+            if (booking[field] === "") booking[field] = null;
+        });
         const sequence = Number(localStorage.getItem("awkaRidesBookingSequence") || "0") + 1;
         const reference = `AR-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
         booking.reference = reference;
