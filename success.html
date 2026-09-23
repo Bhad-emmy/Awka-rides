@@ -32,17 +32,23 @@
                 <div><dt>Pickup Time</dt><dd id="success-time">-</dd></div>
             </dl>
         </section>
-        <section class="payment-box reveal" id="paystack-payment" aria-labelledby="payment-heading">
-            <p class="eyebrow">Secure payment</p>
-            <h2 id="payment-heading">Pay your confirmed fare</h2>
-            <p id="payment-message">Your dispatcher will confirm the fare after assigning a rider.</p>
+
+        <section class="payment-box reveal" id="manual-payment" aria-labelledby="payment-heading">
+            <p class="eyebrow">Manual payment</p>
+            <h2 id="payment-heading">Pay after your fare is confirmed</h2>
+            <p id="payment-message">Your dispatcher will confirm the rider and fare first. Payment is currently handled manually.</p>
             <div class="payment-details">
-                <div><dt>Fare</dt><dd id="paystack-fare">Not confirmed</dd></div>
-                <div><dt>Payment status</dt><dd id="paystack-status">Checking...</dd></div>
+                <div><dt>Fare</dt><dd id="manual-fare">Not confirmed</dd></div>
+                <div><dt>Payment status</dt><dd id="manual-status">Checking...</dd></div>
+                <div><dt>Payment method</dt><dd>OPay or Cash</dd></div>
             </div>
-            <button class="button button-primary" id="paystack-button" type="button" disabled>Pay securely with Paystack</button>
+            <div class="manual-payment-note">
+                <strong>How payment works</strong>
+                <p>Once your fare is confirmed, the dispatcher will give you the payment instructions. For OPay transfers, follow the dispatcher’s account details and send your payment confirmation when requested. Cash can be recorded manually by the dispatcher.</p>
+            </div>
         </section>
-        <section class="next-steps-card reveal"><h2>What happens next?</h2><p>We'll contact you using the phone number provided and connect you with your assigned rider.</p></section>
+
+        <section class="next-steps-card reveal"><h2>What happens next?</h2><p>We'll contact you using the phone number provided, confirm your fare, and connect you with your assigned rider.</p></section>
         <section class="status-card reveal" aria-labelledby="status-heading"><h2 id="status-heading">Ride Status</h2><ol class="status-timeline"><li class="current"><span>✓</span>Booking Received</li><li><span>○</span>Dispatcher Reviewing</li><li><span>○</span>Rider Assigned</li><li><span>○</span>Rider On The Way</li><li><span>○</span>Trip Completed</li></ol></section>
         <section class="success-contact reveal"><div><p class="eyebrow">Need assistance?</p><h2>Contact Ọka-Rides</h2><p>Call us or message us on WhatsApp anytime.</p><div class="success-numbers"><a href="tel:09064636239">09064636239</a><a href="tel:08160552860">08160552860</a></div></div><div class="success-actions"><a class="button button-primary" href="tel:09064636239">Call Now</a><a class="button button-whatsapp button-whatsapp-primary" id="success-whatsapp" href="https://wa.me/2349064636239" target="_blank" rel="noopener">💬 Chat on WhatsApp</a></div></section>
         <section class="safety-notice reveal"><h2>Your Safety Matters</h2><p>Ride only with the rider assigned by Ọka-Rides. If you have any concerns, contact us immediately using the numbers above.</p><p><a href="tel:09064636239">09064636239</a> · <a href="tel:08160552860">08160552860</a></p></section>
