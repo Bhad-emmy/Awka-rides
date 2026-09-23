@@ -6,6 +6,7 @@ import hmac
 import json
 import secrets
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -56,7 +57,7 @@ class RideRequest(BaseModel):
     passengers: str = Field(min_length=1)
     notes: str = ""
     vehicle: str = Field(min_length=1)
-    reference: str = Field(min_length=1)
+    reference: str | None = None
     pickupLatitude: float | None = Field(default=None, ge=-90, le=90)
     pickupLongitude: float | None = Field(default=None, ge=-180, le=180)
     destinationLatitude: float | None = Field(default=None, ge=-90, le=90)
@@ -665,8 +666,12 @@ async def create_ride(ride: RideRequest):
             detail="Passengers must be a whole number.",
         ) from exc
 
+    # Booking references are generated server-side so they are unique across
+    # phones, browsers, desktop sessions, and simultaneous bookings.
+    reference = f"OKA-{uuid.uuid4().hex.upper()}"
+
     payload = {
-        "reference": ride.reference,
+        "reference": reference,
         "name": ride.name,
         "phone": ride.phone,
         "email": ride.email.strip(),
@@ -696,7 +701,7 @@ async def create_ride(ride: RideRequest):
 
     return {
         "message": "Ride request created",
-        "reference": created.get("reference", ride.reference),
+        "reference": created.get("reference", reference),
         "status": created.get("status", "REQUESTED"),
         "supabaseRecordId": created.get("id"),
     }
