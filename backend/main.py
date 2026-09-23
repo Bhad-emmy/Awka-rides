@@ -205,6 +205,56 @@ def require_dispatcher_session(
     return username
 
 
+def termii_settings():
+    api_key = os.getenv("TERMII_API_KEY")
+    sender_id = os.getenv("TERMII_SENDER_ID", "OKA-RIDES")
+    base_url = os.getenv("TERMII_BASE_URL", "https://api.ng.termii.com/api").rstrip("/")
+    return api_key, sender_id, base_url
+
+def normalize_nigerian_phone(phone: str) -> str:
+    digits = "".join(ch for ch in str(phone) if ch.isdigit())
+    if digits.startswith("234") and len(digits) == 13:
+        return digits
+    if digits.startswith("0") and len(digits) == 11:
+        return "234" + digits[1:]
+    raise ValueError("Driver phone must be a Nigerian number such as 08012345678.")
+
+async def send_driver_sms(driver_phone: str, message: str):
+    api_key, sender_id, base_url = termii_settings()
+    if not api_key:
+        return {"status": "SKIPPED", "reason": "TERMII_API_KEY is not configured."}
+    try:
+        to = normalize_nigerian_phone(driver_phone)
+    except ValueError as exc:
+        return {"status": "FAILED", "reason": str(exc)}
+    payload = {
+        "api_key": api_key, "to": to, "from": sender_id, "sms": message,
+        "type": "plain", "channel": "dnd",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(f"{base_url}/sms/send", json=payload)
+    except httpx.HTTPError:
+        return {"status": "FAILED", "reason": "Unable to reach SMS provider."}
+    if response.is_error:
+        return {"status": "FAILED", "reason": f"SMS provider rejected the message ({response.status_code})."}
+    data = response.json()
+    return {"status": "SENT", "messageId": data.get("message_id")}
+
+async def notify_driver_of_assignment(ride_fields: dict, driver_fields: dict):
+    reference = ride_fields.get("Reference", "N/A")
+    customer = ride_fields.get("Name", "Customer")
+    pickup = ride_fields.get("Pickup", "Not provided")
+    destination = ride_fields.get("Destination", "Not provided")
+    fare = ride_fields.get("Fare")
+    fare_text = f"NGN {fare:,.0f}" if isinstance(fare, (int, float)) else "Fare pending"
+    message = (
+        f"OKA-RIDES: New ride {reference}. Customer: {customer}. "
+        f"Pickup: {pickup}. Destination: {destination}. Fare: {fare_text}. "
+        "Check dispatcher for details."
+    )
+    return await send_driver_sms(driver_fields.get("Phone", ""), message)
+
 def airtable_headers(api_key: str):
     return {
         "Authorization": f"Bearer {api_key}",
@@ -843,11 +893,16 @@ async def assign_driver(
             status_code=502,
             detail="Airtable rejected the ride assignment.",
         )
+    sms_result = await notify_driver_of_assignment(
+        ride_response.json().get("fields", {}),
+        driver_fields,
+    )
     return {
         "message": "Driver assigned",
         "rideId": ride_id,
         "driverId": driver_fields.get("Driver ID"),
         "status": "DRIVER ASSIGNED",
+        "smsNotification": sms_result,
     }
 
 
