@@ -173,9 +173,8 @@ if (bookingForm) {
         ["pickupLatitude", "pickupLongitude", "destinationLatitude", "destinationLongitude"].forEach((field) => {
             if (booking[field] === "") booking[field] = null;
         });
-        const sequence = Number(localStorage.getItem("awkaRidesBookingSequence") || "0") + 1;
-        const reference = `AR-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
-        booking.reference = reference;
+        // The API generates the booking reference server-side.
+        delete booking.reference;
         const submitButton = bookingForm.querySelector("button[type='submit']");
         submitButton.disabled = true;
         submitButton.setAttribute("aria-busy", "true");
@@ -187,11 +186,14 @@ if (bookingForm) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(booking)
             });
+            const created = await response.json().catch(() => ({}));
             if (!response.ok) {
-                const error = await response.json().catch(() => ({}));
-                throw new Error(error.detail || "The ride request could not be submitted.");
+                throw new Error(created.detail || "The ride request could not be submitted.");
             }
-            localStorage.setItem("awkaRidesBookingSequence", String(sequence));
+            if (!created.reference) {
+                throw new Error("The booking service did not return a booking reference.");
+            }
+            booking.reference = created.reference;
             localStorage.setItem("awkaRidesLatestBooking", JSON.stringify(booking));
             window.location.href = "success.html";
         } catch (error) {
