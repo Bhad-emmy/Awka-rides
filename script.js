@@ -213,6 +213,67 @@ const manualFare = document.querySelector("#manual-fare");
 const manualStatus = document.querySelector("#manual-status");
 const manualMessage = document.querySelector("#payment-message");
 
+const assignedRider = document.querySelector("#assigned-rider");
+const riderName = document.querySelector("#rider-name");
+const riderPhone = document.querySelector("#rider-phone");
+const riderVehicle = document.querySelector("#rider-vehicle");
+const riderPlate = document.querySelector("#rider-plate");
+const callRider = document.querySelector("#call-rider");
+const whatsappRider = document.querySelector("#whatsapp-rider");
+const statusTimeline = document.querySelector(".status-timeline");
+
+function normalizeWhatsappNumber(phone) {
+    const digits = String(phone || "").replace(/\D/g, "");
+    if (digits.startsWith("234") && digits.length === 13) return digits;
+    if (digits.startsWith("0") && digits.length === 11) return `234${digits.slice(1)}`;
+    return digits;
+}
+
+function renderAssignedRider(data, booking) {
+    if (!assignedRider) return;
+
+    const visible = data.driverAssigned && data.driverPhone;
+    assignedRider.hidden = !visible;
+    if (!visible) return;
+
+    riderName.textContent = data.driverName || "Assigned rider";
+    riderPhone.textContent = data.driverPhone;
+    riderVehicle.textContent = data.driverVehicle || "Keke";
+    riderPlate.textContent = data.driverPlateNumber || "Not provided";
+    callRider.href = `tel:${data.driverPhone}`;
+
+    const whatsappNumber = normalizeWhatsappNumber(data.driverPhone);
+    const whatsappMessage = [
+        "Hello, I am the customer for Ọka-Rides.",
+        `Booking Reference: ${booking.reference}`,
+        `Pickup landmark/location: ${booking.pickup}`,
+        `Destination: ${booking.destination}`,
+        "I am calling/message you to explain the exact pickup point."
+    ].join("\n");
+    whatsappRider.href = whatsappNumber
+        ? `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappMessage)}`
+        : "#";
+}
+
+function updateStatusTimeline(status) {
+    if (!statusTimeline) return;
+    const steps = [...statusTimeline.querySelectorAll("li")];
+    const currentIndex = {
+        "REQUESTED": 0,
+        "DRIVER ASSIGNED": 2,
+        "PAID": 2,
+        "PICKED UP": 3,
+        "COMPLETED": 4
+    }[status] ?? 0;
+
+    steps.forEach((step, index) => {
+        const isCurrentOrDone = index <= currentIndex;
+        step.classList.toggle("current", isCurrentOrDone);
+        const marker = step.querySelector("span");
+        if (marker) marker.textContent = isCurrentOrDone ? "✓" : "○";
+    });
+}
+
 async function loadManualPayment(booking) {
     if (!manualPayment || !booking?.reference) return;
     try {
@@ -224,20 +285,19 @@ async function loadManualPayment(booking) {
             manualFare.textContent = `₦${Number(data.fare).toLocaleString()}`;
         }
 
+        renderAssignedRider(data, booking);
+        updateStatusTimeline(data.status);
+
         if (data.status === "PAID" || data.paymentStatus === "PAID") {
             manualStatus.textContent = "PAID";
             manualMessage.textContent = "Payment has been recorded. Your ride can now proceed.";
-            return;
-        }
-
-        if (data.status === "DRIVER ASSIGNED" && data.fareConfirmed) {
+        } else if (data.status === "DRIVER ASSIGNED" && data.fareConfirmed) {
             manualStatus.textContent = "Payment pending";
-            manualMessage.textContent = "Your rider and fare have been confirmed. Please follow the manual payment instructions from the dispatcher.";
-            return;
+            manualMessage.textContent = "Your rider has been assigned and their contact details are shown above. Call the rider to explain your exact pickup point or landmark.";
+        } else {
+            manualStatus.textContent = data.status || "Pending";
+            manualMessage.textContent = "Your dispatcher will confirm the rider and fare first. Payment is currently handled manually.";
         }
-
-        manualStatus.textContent = data.status || "Pending";
-        manualMessage.textContent = "Your dispatcher will confirm the rider and fare first. Payment is currently handled manually.";
     } catch (error) {
         manualStatus.textContent = "Unavailable";
         manualMessage.textContent = error.message;
@@ -268,6 +328,9 @@ Pickup Time: ${display(booking.pickupTiming === "Schedule" ? booking.scheduledTi
     document.querySelector("#success-whatsapp").href = `https://wa.me/2349064636239?text=${encodeURIComponent(message)}`;
 }
 
+let statusPollTimer;
 if (successReference && savedBooking) {
-    loadManualPayment(JSON.parse(savedBooking));
+    const booking = JSON.parse(savedBooking);
+    loadManualPayment(booking);
+    statusPollTimer = window.setInterval(() => loadManualPayment(booking), 10000);
 }
