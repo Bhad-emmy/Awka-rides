@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="awka-api-base" content="/api">
+    <meta name="description" content="Your Ọka-Rides customer account and ride history.">
+    <title>My Account | Ọka-Rides</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="account-page">
+    <nav class="site-nav" aria-label="Main navigation">
+        <a class="logo" href="index.html#home" aria-label="Ọka-Rides home"><span class="logo-mark" aria-hidden="true">↗</span><span>ỌKA-<strong>RIDES</strong></span></a>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-menu" aria-label="Open menu"><span></span><span></span><span></span></button>
+        <ul id="main-menu" class="nav-links">
+            <li><span class="open-badge"><span aria-hidden="true">●</span> OPEN 24/7</span></li>
+            <li><a href="index.html#home">Home</a></li>
+            <li><a href="booking.html">Book Ride</a></li>
+            <li><a href="account.html" aria-current="page">My Account</a></li>
+            <li><a href="index.html#why-us">Safety</a></li>
+            <li><a href="index.html#contact">Contact</a></li>
+        </ul>
+    </nav>
+
+    <main class="account-shell section" id="account-page">
+        <section class="section-header reveal">
+            <p class="eyebrow">Ọka-Rides customer account</p>
+            <h1>My Account</h1>
+            <p>Save your details, view previous routes, and book your favourite trips again in a few taps.</p>
+        </section>
+
+        <p class="account-message" id="account-message" role="status" aria-live="polite"></p>
+
+        <section class="account-auth" id="account-auth">
+            <div class="account-tabs" role="tablist" aria-label="Account access">
+                <button class="account-tab active" id="login-tab" type="button">Log In</button>
+                <button class="account-tab" id="signup-tab" type="button">Create Account</button>
+            </div>
+
+            <form class="account-form" id="customer-login-form">
+                <label>Email Address<input type="email" name="email" autocomplete="email" required></label>
+                <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+                <button class="button button-primary" type="submit">Log In</button>
+            </form>
+
+            <form class="account-form" id="customer-signup-form" hidden>
+                <label>Full Name<input type="text" name="fullName" autocomplete="name" required></label>
+                <label>Phone Number<input type="tel" name="phone" autocomplete="tel" required></label>
+                <label>Email Address<input type="email" name="email" autocomplete="email" required></label>
+                <label>Password<input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
+                <small class="account-hint">Use at least 8 characters. Your session stays active on this device until you log out or it expires.</small>
+                <button class="button button-primary" type="submit">Create Account</button>
+            </form>
+        </section>
+
+        <section class="account-profile" id="account-profile" hidden>
+            <div class="profile-card">
+                <div>
+                    <p class="eyebrow">Signed in</p>
+                    <h2 id="account-name">-</h2>
+                    <p id="account-email">-</p>
+                    <p id="account-phone">-</p>
+                </div>
+                <div class="profile-actions">
+                    <a class="button button-primary" href="booking.html">Book a Ride</a>
+                    <button class="button button-secondary" id="customer-logout" type="button">Log Out</button>
+                </div>
+            </div>
+
+            <div class="history-header">
+                <div>
+                    <p class="eyebrow">Your history</p>
+                    <h2>Previous Rides</h2>
+                </div>
+                <a class="button button-secondary" href="booking.html">New Ride</a>
+            </div>
+            <div class="ride-history" id="customer-rides"></div>
+        </section>
+    </main>
+
+    <footer><div><a class="logo" href="index.html#home"><span class="logo-mark" aria-hidden="true">↗</span><span>ỌKA-<strong>RIDES</strong></span></a><p>Safe, reliable rides around Awka.</p></div><small>© 2026 Ọka-Rides. Built for Awka.</small></footer>
+    <script src="script.js"></script>
+</body>
+</html>
