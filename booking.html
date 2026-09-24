@@ -18,7 +18,7 @@
             <li><span class="open-badge"><span aria-hidden="true">●</span> OPEN 24/7</span></li>
             <li><a href="index.html#home">Home</a></li>
             <li><a href="booking.html" aria-current="page">Book Ride</a></li>
-            <li><a href="index.html#why-us">Safety</a></li>
+            <li><a href="index.html#why-us">Safety</a></li><li><a href="account.html">My Account</a></li>
             <li><a href="index.html#contact">Contact</a></li>
             <li><a class="nav-cta" href="tel:09064636239">Call Now</a></li>
         </ul>
@@ -42,6 +42,13 @@
 
         <section class="booking-layout section">
             <div>
+                <div class="customer-gate reveal" id="customer-gate" hidden>
+    <p class="eyebrow">Customer account required</p>
+    <h2>Log in to book a ride</h2>
+    <p>Your account saves your ride history and previous destinations so you can book them again quickly.</p>
+    <a class="button button-primary" id="customer-gate-link" href="account.html?return=booking.html">Open My Account</a>
+</div>
+
                 <form class="booking-card booking-form-page reveal" id="booking-form" novalidate>
                     <div class="form-grid">
                         <label>Full Name *<input type="text" name="name" autocomplete="name" required></label>
