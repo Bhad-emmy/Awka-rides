@@ -537,7 +537,7 @@ if (bookingForm && bookingCustomerGate) {
                 field.classList.add("readonly-field");
             });
 
-            updateSummary();
+            bookingForm.elements.destination.dispatchEvent(new Event("input", { bubbles: true }));
         } catch {
             bookingCustomerGate.hidden = false;
             requestButton.disabled = true;
@@ -564,6 +564,6 @@ if (bookingForm && bookingCustomerGate) {
         if (timingField) timingField.value = "Now";
 
         localStorage.removeItem("okaRidesRebook");
-        updateSummary();
+        bookingForm.elements.destination.dispatchEvent(new Event("input", { bubbles: true }));
     }
 }
