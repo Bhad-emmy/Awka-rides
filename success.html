@@ -51,7 +51,28 @@
             </div>
         </section>
 
-        <section class="next-steps-card reveal"><h2>What happens next?</h2><p>We'll contact you using the phone number provided, confirm your fare, and connect you with your assigned rider.</p></section>
+        <section class="rider-card reveal" id="assigned-rider" aria-labelledby="assigned-rider-heading" hidden>
+            <div class="rider-card-header">
+                <div>
+                    <p class="eyebrow">Rider assigned</p>
+                    <h2 id="assigned-rider-heading">Your rider's details</h2>
+                </div>
+                <span class="rider-status-badge">ASSIGNED</span>
+            </div>
+            <div class="rider-details">
+                <div><span>Rider</span><strong id="rider-name">-</strong></div>
+                <div><span>Phone</span><strong id="rider-phone">-</strong></div>
+                <div><span>Vehicle</span><strong id="rider-vehicle">-</strong></div>
+                <div><span>Plate number</span><strong id="rider-plate">-</strong></div>
+            </div>
+            <p class="rider-help">Call your assigned rider directly to explain the exact pickup point or nearby landmark.</p>
+            <div class="rider-actions">
+                <a class="button button-primary" id="call-rider" href="#">📞 Call Rider</a>
+                <a class="button button-whatsapp button-whatsapp-primary" id="whatsapp-rider" href="#" target="_blank" rel="noopener">💬 WhatsApp Rider</a>
+            </div>
+        </section>
+
+        <section class="next-steps-card reveal"><h2>What happens next?</h2><p>Once a rider is assigned, their contact details will appear above so you can call them directly and explain the exact pickup point using your landmark.</p></section>
         <section class="status-card reveal" aria-labelledby="status-heading"><h2 id="status-heading">Ride Status</h2><ol class="status-timeline"><li class="current"><span>✓</span>Booking Received</li><li><span>○</span>Dispatcher Reviewing</li><li><span>○</span>Rider Assigned</li><li><span>○</span>Rider On The Way</li><li><span>○</span>Trip Completed</li></ol></section>
         <section class="success-contact reveal"><div><p class="eyebrow">Need assistance?</p><h2>Contact Ọka-Rides</h2><p>Call us or message us on WhatsApp anytime.</p><div class="success-numbers"><a href="tel:09064636239">09064636239</a><a href="tel:08160552860">08160552860</a></div></div><div class="success-actions"><a class="button button-primary" href="tel:09064636239">Call Now</a><a class="button button-whatsapp button-whatsapp-primary" id="success-whatsapp" href="https://wa.me/2349064636239" target="_blank" rel="noopener">💬 Chat on WhatsApp</a></div></section>
         <section class="safety-notice reveal"><h2>Your Safety Matters</h2><p>Ride only with the rider assigned by Ọka-Rides. If you have any concerns, contact us immediately using the numbers above.</p><p><a href="tel:09064636239">09064636239</a> · <a href="tel:08160552860">08160552860</a></p></section>
