@@ -20,6 +20,7 @@ load_dotenv()
 
 SUPABASE_TABLE_RIDES = "oka_rides_rides"
 SUPABASE_TABLE_DRIVERS = "oka_rides_drivers"
+SUPABASE_TABLE_CUSTOMERS = "oka_rides_customers"
 PAYSTACK_API_BASE = "https://api.paystack.co"
 
 app = FastAPI(title="Awka Rides API")
@@ -102,6 +103,18 @@ class DispatcherLogin(BaseModel):
     password: str = Field(min_length=1)
 
 
+class CustomerSignup(BaseModel):
+    fullName: str = Field(min_length=2, max_length=120)
+    phone: str = Field(min_length=7, max_length=30)
+    email: str = Field(min_length=5, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class CustomerLogin(BaseModel):
+    email: str = Field(min_length=5, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+
 class PaystackInitialize(BaseModel):
     reference: str = Field(min_length=1)
     email: str = Field(min_length=3)
@@ -118,6 +131,8 @@ RideListStatus = Literal[
 
 DISPATCHER_SESSION_COOKIE = "awka_dispatcher_session"
 DISPATCHER_SESSION_TTL = 8 * 60 * 60
+CUSTOMER_SESSION_COOKIE = "oka_customer_session"
+CUSTOMER_SESSION_TTL = 30 * 24 * 60 * 60
 PASSWORD_HASH_PREFIX = "pbkdf2_sha256"
 
 
@@ -216,6 +231,50 @@ async def find_ride_by_reference(reference: str) -> dict:
     return rows[0]
 
 
+async def get_customer_record(customer_id: str) -> dict:
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_CUSTOMERS,
+        params={
+            "select": "id,full_name,phone,email,created_at",
+            "id": f"eq.{customer_id}",
+            "limit": "1",
+        },
+        action_description="customer lookup",
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Customer account not found.")
+    return rows[0]
+
+
+async def find_customer_by_email(email: str) -> dict | None:
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_CUSTOMERS,
+        params={
+            "select": "*",
+            "email": f"eq.{email.lower().strip()}",
+            "limit": "1",
+        },
+        action_description="customer account lookup",
+    )
+    return rows[0] if rows else None
+
+
+async def find_customer_by_phone(phone: str) -> dict | None:
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_CUSTOMERS,
+        params={
+            "select": "*",
+            "phone": f"eq.{phone.strip()}",
+            "limit": "1",
+        },
+        action_description="customer account lookup",
+    )
+    return rows[0] if rows else None
+
+
 async def get_driver_record(driver_id: str) -> dict:
     rows = await supabase_request(
         "GET",
@@ -242,6 +301,14 @@ def dispatcher_settings():
             detail="Dispatcher authentication is not configured on the server.",
         )
     return username, password_hash, session_secret
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310_000)
+    encoded_salt = base64.urlsafe_b64encode(salt).decode().rstrip("=")
+    encoded_digest = base64.urlsafe_b64encode(digest).decode().rstrip("=")
+    return "pbkdf2_sha256$310000$" + encoded_salt + "$" + encoded_digest
 
 
 def verify_password(password: str, encoded_hash: str):
@@ -279,10 +346,10 @@ def sign_session(payload: str, secret: str):
     return f"{payload}.{encoded_signature}"
 
 
-def create_session(username: str, secret: str):
+def create_session(subject: str, secret: str, ttl: int):
     payload = base64.urlsafe_b64encode(
         json.dumps(
-            {"sub": username, "exp": int(time.time()) + DISPATCHER_SESSION_TTL},
+            {"sub": subject, "exp": int(time.time()) + ttl},
             separators=(",", ":"),
         ).encode()
     ).decode().rstrip("=")
@@ -325,6 +392,24 @@ def require_dispatcher_session(
             detail="Dispatcher authentication required.",
         )
     return username
+
+
+def require_customer_session(
+    session_cookie: str | None = Cookie(
+        default=None,
+        alias=CUSTOMER_SESSION_COOKIE,
+    ),
+):
+    secret = os.getenv("CUSTOMER_SESSION_SECRET")
+    if not secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Customer authentication is not configured on the server.",
+        )
+    customer_id = session_username(session_cookie, secret)
+    if not customer_id:
+        raise HTTPException(status_code=401, detail="Customer login required.")
+    return customer_id
 
 
 def normalize_nigerian_phone(phone: str) -> str:
@@ -626,7 +711,7 @@ async def dispatcher_login(credentials: DispatcherLogin, response: Response):
     secure_cookie = os.getenv("DISPATCHER_COOKIE_SECURE", "true").lower() == "true"
     response.set_cookie(
         key=DISPATCHER_SESSION_COOKIE,
-        value=create_session(username, session_secret),
+        value=create_session(username, session_secret, DISPATCHER_SESSION_TTL),
         max_age=DISPATCHER_SESSION_TTL,
         httponly=True,
         secure=secure_cookie,
@@ -656,7 +741,10 @@ async def dispatcher_logout(response: Response):
 
 
 @app.post("/api/rides", status_code=201)
-async def create_ride(ride: RideRequest):
+async def create_ride(
+    ride: RideRequest,
+    customer_id: str = Depends(require_customer_session),
+):
     try:
         passengers = str(int(ride.passengers))
     except ValueError as exc:
@@ -668,12 +756,14 @@ async def create_ride(ride: RideRequest):
     # Booking references are generated server-side so they are unique across
     # phones, browsers, desktop sessions, and simultaneous bookings.
     reference = f"OKA-{secrets.token_hex(4).upper()}"
+    customer = await get_customer_record(customer_id)
 
     payload = {
         "reference": reference,
-        "name": ride.name,
-        "phone": ride.phone,
-        "email": ride.email.strip(),
+        "customer_id": customer_id,
+        "name": customer.get("full_name"),
+        "phone": customer.get("phone"),
+        "email": customer.get("email"),
         "pickup": ride.pickup,
         "destination": ride.destination,
         "pickup_timing": ride.pickupTiming,
@@ -709,9 +799,162 @@ async def create_ride(ride: RideRequest):
 @app.get("/api/rides/public/{reference}")
 async def public_ride_status(reference: str = Path(min_length=1)):
     record = await find_ride_by_reference(reference)
+    return {
+        "reference": record.get("reference"),
+        "status": record.get("status"),
+        "fare": record.get("fare"),
+        "fareConfirmed": record.get("fare_confirmed", False),
+        "paymentStatus": record.get("payment_status"),
+    }
+
+
+async def get_customer_ride(reference: str, customer_id: str) -> dict:
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "select": "*",
+            "reference": f"eq.{reference}",
+            "customer_id": f"eq.{customer_id}",
+            "limit": "1",
+        },
+        action_description="customer ride lookup",
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Ride not found for this account.")
+    return rows[0]
+
+
+@app.get("/api/customer/auth/session")
+async def customer_session(customer_id: str = Depends(require_customer_session)):
+    customer = await get_customer_record(customer_id)
+    return {
+        "authenticated": True,
+        "customer": {
+            "id": customer.get("id"),
+            "fullName": customer.get("full_name"),
+            "phone": customer.get("phone"),
+            "email": customer.get("email"),
+        },
+    }
+
+
+@app.post("/api/customer/auth/signup", status_code=201)
+async def customer_signup(credentials: CustomerSignup, response: Response):
+    email = credentials.email.strip().lower()
+    phone = credentials.phone.strip()
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Enter a valid email address.")
+    if await find_customer_by_email(email):
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+    if await find_customer_by_phone(phone):
+        raise HTTPException(status_code=409, detail="An account with this phone number already exists.")
+
+    payload = {
+        "full_name": credentials.fullName.strip(),
+        "phone": phone,
+        "email": email,
+        "password_hash": hash_password(credentials.password),
+    }
+    rows = await supabase_request(
+        "POST",
+        SUPABASE_TABLE_CUSTOMERS,
+        json_body=payload,
+        action_description="customer account creation",
+    )
+    customer = rows[0] if rows else None
+    if not customer:
+        raise HTTPException(status_code=502, detail="Customer account could not be created.")
+
+    secret = os.getenv("CUSTOMER_SESSION_SECRET")
+    if not secret:
+        raise HTTPException(status_code=500, detail="Customer authentication is not configured on the server.")
+    response.set_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        value=create_session(str(customer["id"]), secret, CUSTOMER_SESSION_TTL),
+        max_age=CUSTOMER_SESSION_TTL,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
+    return {
+        "authenticated": True,
+        "customer": {
+            "id": customer.get("id"),
+            "fullName": customer.get("full_name"),
+            "phone": customer.get("phone"),
+            "email": customer.get("email"),
+        },
+    }
+
+
+@app.post("/api/customer/auth/login")
+async def customer_login(credentials: CustomerLogin, response: Response):
+    email = credentials.email.strip().lower()
+    customer = await find_customer_by_email(email)
+    if not customer or not verify_password(credentials.password, customer.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    secret = os.getenv("CUSTOMER_SESSION_SECRET")
+    if not secret:
+        raise HTTPException(status_code=500, detail="Customer authentication is not configured on the server.")
+    response.set_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        value=create_session(str(customer["id"]), secret, CUSTOMER_SESSION_TTL),
+        max_age=CUSTOMER_SESSION_TTL,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
+    return {
+        "authenticated": True,
+        "customer": {
+            "id": customer.get("id"),
+            "fullName": customer.get("full_name"),
+            "phone": customer.get("phone"),
+            "email": customer.get("email"),
+        },
+    }
+
+
+@app.post("/api/customer/auth/logout")
+async def customer_logout(response: Response):
+    response.delete_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
+    return {"authenticated": False}
+
+
+@app.get("/api/customer/rides")
+async def customer_rides(customer_id: str = Depends(require_customer_session)):
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "select": "*",
+            "customer_id": f"eq.{customer_id}",
+            "order": "created_at.desc",
+            "limit": "100",
+        },
+        action_description="customer ride list",
+    )
+    return {"rides": [ride_representation(row) for row in rows]}
+
+
+@app.get("/api/customer/rides/{reference}")
+async def customer_ride(
+    reference: str = Path(min_length=1),
+    customer_id: str = Depends(require_customer_session),
+):
+    record = await get_customer_ride(reference, customer_id)
     status = record.get("status")
     assignment_visible = status in {"DRIVER ASSIGNED", "PAID", "PICKED UP", "COMPLETED"}
-
     response = {
         "reference": record.get("reference"),
         "status": status,
@@ -720,7 +963,6 @@ async def public_ride_status(reference: str = Path(min_length=1)):
         "paymentStatus": record.get("payment_status"),
         "driverAssigned": assignment_visible,
     }
-
     if assignment_visible:
         response.update(
             {
@@ -730,7 +972,6 @@ async def public_ride_status(reference: str = Path(min_length=1)):
                 "driverPlateNumber": record.get("driver_plate_number"),
             }
         )
-
     return response
 
 
