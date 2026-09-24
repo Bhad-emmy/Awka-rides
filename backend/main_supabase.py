@@ -709,13 +709,29 @@ async def create_ride(ride: RideRequest):
 @app.get("/api/rides/public/{reference}")
 async def public_ride_status(reference: str = Path(min_length=1)):
     record = await find_ride_by_reference(reference)
-    return {
+    status = record.get("status")
+    assignment_visible = status in {"DRIVER ASSIGNED", "PAID", "PICKED UP", "COMPLETED"}
+
+    response = {
         "reference": record.get("reference"),
-        "status": record.get("status"),
+        "status": status,
         "fare": record.get("fare"),
         "fareConfirmed": record.get("fare_confirmed", False),
         "paymentStatus": record.get("payment_status"),
+        "driverAssigned": assignment_visible,
     }
+
+    if assignment_visible:
+        response.update(
+            {
+                "driverName": record.get("driver_name"),
+                "driverPhone": record.get("driver_phone"),
+                "driverVehicle": record.get("driver_vehicle"),
+                "driverPlateNumber": record.get("driver_plate_number"),
+            }
+        )
+
+    return response
 
 
 @app.post("/api/payments/paystack/initialize")
