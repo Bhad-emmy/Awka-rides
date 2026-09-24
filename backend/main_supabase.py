@@ -49,7 +49,7 @@ app.add_middleware(
 class RideRequest(BaseModel):
     name: str = Field(min_length=1)
     phone: str = Field(min_length=1)
-    email: str = Field(min_length=3)
+    email: str = ""
     pickup: str = Field(min_length=1)
     destination: str = Field(min_length=1)
     pickupTiming: str = Field(min_length=1)
