@@ -277,7 +277,7 @@ function updateStatusTimeline(status) {
 async function loadManualPayment(booking) {
     if (!manualPayment || !booking?.reference) return;
     try {
-        const response = await fetch(`${successApiBase}/rides/public/${encodeURIComponent(booking.reference)}`);
+        const response = await fetch(`${successApiBase}/customer/rides/${encodeURIComponent(booking.reference)}`);
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.detail || "Unable to check ride status.");
 
@@ -333,4 +333,237 @@ if (successReference && savedBooking) {
     const booking = JSON.parse(savedBooking);
     loadManualPayment(booking);
     statusPollTimer = window.setInterval(() => loadManualPayment(booking), 10000);
+}
+
+const accountPage = document.querySelector("#account-page");
+if (accountPage) {
+    const accountMessage = document.querySelector("#account-message");
+    const authPanel = document.querySelector("#account-auth");
+    const profilePanel = document.querySelector("#account-profile");
+    const loginForm = document.querySelector("#customer-login-form");
+    const signupForm = document.querySelector("#customer-signup-form");
+    const loginTab = document.querySelector("#login-tab");
+    const signupTab = document.querySelector("#signup-tab");
+    const ridesList = document.querySelector("#customer-rides");
+    const accountName = document.querySelector("#account-name");
+    const accountEmail = document.querySelector("#account-email");
+    const accountPhone = document.querySelector("#account-phone");
+    const logoutButton = document.querySelector("#customer-logout");
+    const returnTarget = new URLSearchParams(window.location.search).get("return");
+
+    function setAccountMessage(message = "", isError = false) {
+        if (!accountMessage) return;
+        accountMessage.textContent = message;
+        accountMessage.classList.toggle("error", isError);
+    }
+
+    function showAuthTab(tab) {
+        loginForm.hidden = tab !== "login";
+        signupForm.hidden = tab !== "signup";
+        loginTab.classList.toggle("active", tab === "login");
+        signupTab.classList.toggle("active", tab === "signup");
+        setAccountMessage("");
+    }
+
+    function formatDate(value) {
+        if (!value) return "Date unavailable";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" });
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
+        }[char]));
+    }
+
+    function rideStatusClass(status) {
+        return String(status || "").toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "");
+    }
+
+    function ridePayload(ride) {
+        return encodeURIComponent(JSON.stringify({
+            reference: ride.reference || "",
+            name: ride.name || "",
+            phone: ride.phone || "",
+            email: ride.email || "",
+            pickup: ride.pickup || "",
+            destination: ride.destination || "",
+            pickupTiming: ride.pickupTiming || "Now",
+            scheduledTime: ride.scheduledTime || "",
+            passengers: ride.passengers || "1",
+            notes: ride.notes || "",
+            vehicle: ride.vehicle || "Keke"
+        }));
+    }
+
+    function renderRides(rides) {
+        if (!ridesList) return;
+        if (!rides.length) {
+            ridesList.innerHTML = '<div class="empty-history"><h3>No ride history yet</h3><p>Your previous bookings will appear here, ready to book again.</p><a class="button button-primary" href="booking.html">Book Your First Ride</a></div>';
+            return;
+        }
+
+        ridesList.innerHTML = rides.map((ride) => {
+            const fare = ride.fare ? "₦" + Number(ride.fare).toLocaleString() : "Fare pending";
+            const status = escapeHtml(ride.status || "REQUESTED");
+            const payload = ridePayload(ride);
+            return '<article class="ride-history-card">' +
+                '<div class="ride-history-top"><div><p class="eyebrow">Booking ' + escapeHtml(ride.reference) + '</p><h3>' + escapeHtml(ride.destination || "Ride") + '</h3></div>' +
+                '<span class="ride-status ' + rideStatusClass(status) + '">' + status + '</span></div>' +
+                '<div class="ride-history-route"><div><span>From</span><strong>' + escapeHtml(ride.pickup || "Not provided") + '</strong></div>' +
+                '<div><span>To</span><strong>' + escapeHtml(ride.destination || "Not provided") + '</strong></div></div>' +
+                '<div class="ride-history-meta"><span>' + formatDate(ride.createdAt) + '</span><strong>' + fare + '</strong></div>' +
+                '<div class="ride-history-actions"><button class="button button-primary book-again-button" type="button" data-rebook="' + payload + '">↻ Book Again</button>' +
+                '<button class="button button-secondary view-ride-button" type="button" data-view-ride="' + payload + '">View Status</button></div></article>';
+        }).join("");
+
+        ridesList.querySelectorAll(".book-again-button").forEach((button) => {
+            button.addEventListener("click", () => {
+                const payload = JSON.parse(decodeURIComponent(button.dataset.rebook));
+                localStorage.setItem("okaRidesRebook", JSON.stringify(payload));
+                window.location.href = "booking.html";
+            });
+        });
+
+        ridesList.querySelectorAll(".view-ride-button").forEach((button) => {
+            button.addEventListener("click", () => {
+                const payload = JSON.parse(decodeURIComponent(button.dataset.viewRide));
+                localStorage.setItem("awkaRidesLatestBooking", JSON.stringify(payload));
+                window.location.href = "success.html";
+            });
+        });
+    }
+
+    async function loadCustomerAccount() {
+        try {
+            const response = await fetch(API_BASE + "/customer/auth/session");
+            if (!response.ok) throw new Error("not authenticated");
+            const data = await response.json();
+            const customer = data.customer || {};
+
+            if (returnTarget === "booking.html") {
+                window.location.href = "booking.html";
+                return true;
+            }
+
+            authPanel.hidden = true;
+            profilePanel.hidden = false;
+            accountName.textContent = customer.fullName || "-";
+            accountEmail.textContent = customer.email || "-";
+            accountPhone.textContent = customer.phone || "-";
+            setAccountMessage("");
+
+            const ridesResponse = await fetch(API_BASE + "/customer/rides");
+            const ridesData = await ridesResponse.json().catch(() => ({}));
+            if (!ridesResponse.ok) throw new Error(ridesData.detail || "Unable to load ride history.");
+            renderRides(ridesData.rides || []);
+            return true;
+        } catch {
+            authPanel.hidden = false;
+            profilePanel.hidden = true;
+            return false;
+        }
+    }
+
+    async function authenticate(path, form, loadingMessage) {
+        setAccountMessage(loadingMessage);
+        try {
+            const response = await fetch(API_BASE + path, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(Object.fromEntries(new FormData(form)))
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.detail || "Authentication failed.");
+            if (returnTarget === "booking.html") {
+                window.location.href = "booking.html";
+                return;
+            }
+            await loadCustomerAccount();
+        } catch (error) {
+            setAccountMessage(error.message, true);
+        }
+    }
+
+    loginForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await authenticate("/customer/auth/login", loginForm, "Signing you in...");
+    });
+
+    signupForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await authenticate("/customer/auth/signup", signupForm, "Creating your account...");
+    });
+
+    loginTab?.addEventListener("click", () => showAuthTab("login"));
+    signupTab?.addEventListener("click", () => showAuthTab("signup"));
+
+    logoutButton?.addEventListener("click", async () => {
+        await fetch(API_BASE + "/customer/auth/logout", { method: "POST" });
+        window.location.reload();
+    });
+
+    showAuthTab("login");
+    loadCustomerAccount();
+}
+
+const bookingCustomerGate = document.querySelector("#customer-gate");
+if (bookingForm && bookingCustomerGate) {
+    const gateLink = document.querySelector("#customer-gate-link");
+    const requestButton = bookingForm.querySelector("button[type='submit']");
+
+    async function loadBookingCustomer() {
+        try {
+            const response = await fetch(API_BASE + "/customer/auth/session");
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.detail || "Please sign in.");
+
+            const customer = data.customer || {};
+            bookingCustomerGate.hidden = true;
+            requestButton.disabled = false;
+
+            const nameField = bookingForm.elements.name;
+            const phoneField = bookingForm.elements.phone;
+            const emailField = bookingForm.elements.email;
+
+            nameField.value = customer.fullName || "";
+            phoneField.value = customer.phone || "";
+            emailField.value = customer.email || "";
+
+            [nameField, phoneField, emailField].forEach((field) => {
+                field.readOnly = true;
+                field.classList.add("readonly-field");
+            });
+
+            updateSummary();
+        } catch {
+            bookingCustomerGate.hidden = false;
+            requestButton.disabled = true;
+            gateLink.href = "account.html?return=booking.html";
+        }
+    }
+
+    loadBookingCustomer();
+
+    const rebook = JSON.parse(localStorage.getItem("okaRidesRebook") || "null");
+    if (rebook) {
+        const destinationField = bookingForm.elements.destination;
+        const pickupField = bookingForm.elements.pickup;
+        const passengersField = bookingForm.elements.passengers;
+        const vehicleField = bookingForm.elements.vehicle;
+        const notesField = bookingForm.elements.notes;
+        const timingField = bookingForm.elements.pickupTiming;
+
+        if (pickupField && rebook.pickup) pickupField.value = rebook.pickup;
+        if (destinationField && rebook.destination) destinationField.value = rebook.destination;
+        if (passengersField && rebook.passengers) passengersField.value = String(rebook.passengers);
+        if (vehicleField && rebook.vehicle) vehicleField.value = rebook.vehicle;
+        if (notesField && rebook.notes) notesField.value = rebook.notes;
+        if (timingField) timingField.value = "Now";
+
+        localStorage.removeItem("okaRidesRebook");
+        updateSummary();
+    }
 }
