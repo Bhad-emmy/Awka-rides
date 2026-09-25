@@ -14,6 +14,7 @@ const knownRequestedRideIds = new Set();
 let alertPollTimer = null;
 let latestNewRide = null;
 let audioContext = null;
+let rideAlertInterval = null;
 let alertsInitialized = false;
 
 function updateAlertsButton() {
@@ -72,16 +73,29 @@ function playRideAlertSound() {
         oscillator.type = "sine";
         oscillator.frequency.value = 880;
         gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.18, audioContext.currentTime + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.35);
+        gain.gain.exponentialRampToValueAtTime(0.2, audioContext.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.32);
         oscillator.connect(gain);
         gain.connect(audioContext.destination);
         oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.36);
+        oscillator.stop(audioContext.currentTime + 0.33);
     } catch (_) {}
     try {
         if ("vibrate" in navigator) navigator.vibrate([180, 90, 180]);
     } catch (_) {}
+}
+
+function stopRideAlert() {
+    if (rideAlertInterval) {
+        clearInterval(rideAlertInterval);
+        rideAlertInterval = null;
+    }
+}
+
+function startRideAlert() {
+    stopRideAlert();
+    playRideAlertSound();
+    rideAlertInterval = setInterval(playRideAlertSound, 1200);
 }
 
 function showNewRideAlert(ride) {
@@ -89,7 +103,7 @@ function showNewRideAlert(ride) {
     $("#new-ride-alert-title").textContent = `New ride request · ${display(ride.reference)}`;
     $("#new-ride-alert-body").textContent = `${display(ride.name)} · ${display(ride.pickup)} → ${display(ride.destination)}`;
     $("#new-ride-alert").hidden = false;
-    playRideAlertSound();
+    startRideAlert();
 
     if ("Notification" in window && Notification.permission === "granted") {
         const notification = new Notification("Ọka-Rides · New ride", {
@@ -340,9 +354,13 @@ $("#alerts-button").addEventListener("click", enableAlerts);
 $("#view-new-ride-button").addEventListener("click", async () => {
     if (!latestNewRide) return;
     $("#new-ride-alert").hidden = true;
+    stopRideAlert();
     await selectRide(latestNewRide.id);
 });
-$("#dismiss-new-ride-button").addEventListener("click", () => { $("#new-ride-alert").hidden = true; });
+$("#dismiss-new-ride-button").addEventListener("click", () => {
+    $("#new-ride-alert").hidden = true;
+    stopRideAlert();
+});
 $("#refresh-button").addEventListener("click", loadRides);
 $("#status-filter").addEventListener("change", loadRides);
 $("#assign-button").addEventListener("click", assignDriver);
@@ -384,6 +402,7 @@ $("#logout-button").addEventListener("click", async () => {
         knownRequestedRideIds.clear();
         alertsInitialized = false;
         clearInterval(alertPollTimer);
+        stopRideAlert();
         showLogin("You have been logged out.");
         setBusy(button, false);
     }
@@ -400,6 +419,7 @@ async function initialize() {
     } catch (error) {
         showLogin();
         clearInterval(alertPollTimer);
+        stopRideAlert();
     }
 }
 
