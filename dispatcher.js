@@ -8,6 +8,140 @@ const html = (value) => display(value).replace(/[&<>"']/g, (character) => ({
 }[character]));
 const money = (value) => value === null || value === undefined || value === "" ? "Not confirmed" : `₦${Number(value).toLocaleString()}`;
 
+
+const ALERT_POLL_MS = 5000;
+const knownRequestedRideIds = new Set();
+let alertPollTimer = null;
+let latestNewRide = null;
+let audioContext = null;
+
+function updateAlertsButton() {
+    const button = $("#alerts-button");
+    if (!button) return;
+    if (!("Notification" in window)) {
+        button.textContent = "🔔 Alerts unavailable";
+        button.disabled = true;
+        return;
+    }
+    if (Notification.permission === "granted") {
+        button.textContent = "🔔 Alerts enabled";
+    } else if (Notification.permission === "denied") {
+        button.textContent = "🔕 Alerts blocked";
+    } else {
+        button.textContent = "🔔 Enable alerts";
+    }
+}
+
+async function enableAlerts() {
+    if (!("Notification" in window)) {
+        setFeedback("This browser does not support desktop notifications.");
+        return;
+    }
+    try {
+        const permission = await Notification.requestPermission();
+        updateAlertsButton();
+        if (permission === "granted") {
+            unlockAlertSound();
+            setFeedback("Ride alerts enabled. Keep the dispatcher tab open.", true);
+        } else if (permission === "denied") {
+            setFeedback("Browser notifications are blocked. The dispatcher will still show new-ride alerts on the page.");
+        }
+    } catch (error) {
+        setFeedback("Unable to enable browser notifications.");
+    }
+}
+
+function unlockAlertSound() {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        audioContext ||= new AudioContext();
+        if (audioContext.state === "suspended") audioContext.resume();
+    } catch (_) {}
+}
+
+function playRideAlertSound() {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        audioContext ||= new AudioContext();
+        if (audioContext.state === "suspended") audioContext.resume();
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.18, audioContext.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.35);
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.36);
+    } catch (_) {}
+    try {
+        if ("vibrate" in navigator) navigator.vibrate([180, 90, 180]);
+    } catch (_) {}
+}
+
+function showNewRideAlert(ride) {
+    latestNewRide = ride;
+    $("#new-ride-alert-title").textContent = `New ride request · ${display(ride.reference)}`;
+    $("#new-ride-alert-body").textContent = `${display(ride.name)} · ${display(ride.pickup)} → ${display(ride.destination)}`;
+    $("#new-ride-alert").hidden = false;
+    playRideAlertSound();
+
+    if ("Notification" in window && Notification.permission === "granted") {
+        const notification = new Notification("Ọka-Rides · New ride", {
+            body: `${display(ride.name)} · ${display(ride.pickup)} → ${display(ride.destination)}`,
+            tag: `oka-rides-${ride.id}`,
+            requireInteraction: true
+        });
+        notification.onclick = () => {
+            window.focus();
+            selectRide(ride.id);
+            notification.close();
+        };
+    }
+}
+
+async function checkForNewRideRequests() {
+    try {
+        const data = await apiRequest("/rides?status=REQUESTED");
+        const requestedRides = data.rides || [];
+        const currentIds = new Set(requestedRides.map((ride) => ride.id));
+
+        if (!knownRequestedRideIds.size) {
+            requestedRides.forEach((ride) => knownRequestedRideIds.add(ride.id));
+            return;
+        }
+
+        const newRides = requestedRides.filter((ride) => !knownRequestedRideIds.has(ride.id));
+        requestedRides.forEach((ride) => knownRequestedRideIds.add(ride.id));
+        for (const id of [...knownRequestedRideIds]) {
+            if (!currentIds.has(id)) knownRequestedRideIds.delete(id);
+        }
+
+        if (!newRides.length) return;
+
+        const newestRide = newRides[0];
+        showNewRideAlert(newestRide);
+        await loadRides();
+
+        if (state.selectedRide?.id === newestRide.id) {
+            await selectRide(newestRide.id);
+        }
+    } catch (error) {
+        if (!error.message.toLowerCase().includes("expired")) {
+            console.warn("Ride alert check failed:", error);
+        }
+    }
+}
+
+function startRideAlerts() {
+    clearInterval(alertPollTimer);
+    alertPollTimer = setInterval(checkForNewRideRequests, ALERT_POLL_MS);
+}
+
 function showLogin(message = "") {
     $("#dispatcher-app").hidden = true;
     $("#login-panel").hidden = false;
@@ -200,6 +334,13 @@ async function recordPayment() {
 }
 async function updateStatus(button, status) { await mutate(button, `/rides/${encodeURIComponent(state.selectedRide.id)}/status`, { status }); }
 
+$("#alerts-button").addEventListener("click", enableAlerts);
+$("#view-new-ride-button").addEventListener("click", async () => {
+    if (!latestNewRide) return;
+    $("#new-ride-alert").hidden = true;
+    await selectRide(latestNewRide.id);
+});
+$("#dismiss-new-ride-button").addEventListener("click", () => { $("#new-ride-alert").hidden = true; });
 $("#refresh-button").addEventListener("click", loadRides);
 $("#status-filter").addEventListener("change", loadRides);
 $("#assign-button").addEventListener("click", assignDriver);
@@ -242,12 +383,16 @@ $("#logout-button").addEventListener("click", async () => {
 });
 
 async function initialize() {
+    updateAlertsButton();
     try {
         await apiRequest("/auth/session");
         showDispatcher();
         await loadRides();
+        await checkForNewRideRequests();
+        startRideAlerts();
     } catch (error) {
         showLogin();
+        clearInterval(alertPollTimer);
     }
 }
 
