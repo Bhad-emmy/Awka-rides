@@ -14,6 +14,7 @@ const knownRequestedRideIds = new Set();
 let alertPollTimer = null;
 let latestNewRide = null;
 let audioContext = null;
+let alertsInitialized = false;
 
 function updateAlertsButton() {
     const button = $("#alerts-button");
@@ -110,8 +111,9 @@ async function checkForNewRideRequests() {
         const requestedRides = data.rides || [];
         const currentIds = new Set(requestedRides.map((ride) => ride.id));
 
-        if (!knownRequestedRideIds.size) {
+        if (!alertsInitialized) {
             requestedRides.forEach((ride) => knownRequestedRideIds.add(ride.id));
+            alertsInitialized = true;
             return;
         }
 
@@ -362,6 +364,8 @@ $("#login-form").addEventListener("submit", async (event) => {
         });
         showDispatcher();
         await loadRides();
+        await checkForNewRideRequests();
+        startRideAlerts();
     } catch (error) {
         $("#login-feedback").textContent = error.message;
     } finally {
@@ -377,6 +381,9 @@ $("#logout-button").addEventListener("click", async () => {
     } finally {
         state.selectedRide = null;
         state.rides = [];
+        knownRequestedRideIds.clear();
+        alertsInitialized = false;
+        clearInterval(alertPollTimer);
         showLogin("You have been logged out.");
         setBusy(button, false);
     }
