@@ -268,7 +268,7 @@ function renderDetails() {
     const canAssign = ride.status === "REQUESTED";
     const canConfirmFare = ride.status === "DRIVER ASSIGNED" && !ride.fareConfirmed;
     const canRecordPayment = ride.status === "DRIVER ASSIGNED" && ride.fareConfirmed;
-    $("#assign-button").disabled = !canAssign;
+    $("#assign-button").disabled = !canAssign || !state.selectedDriverId;
     $("#fare-input").disabled = !canConfirmFare;
     $("#fare-button").disabled = !canConfirmFare;
     $("#payment-status").disabled = !canRecordPayment;
@@ -295,16 +295,60 @@ function renderMap() {
 }
 
 async function loadDrivers() {
-    try {
-        const data = await apiRequest("/drivers"); state.drivers = data.drivers || [];
-        $("#driver-list").innerHTML = state.drivers.map((driver) => `<label class="driver-option ${state.selectedDriverId === driver.id ? "selected" : ""}">
-            <input type="radio" name="driver" value="${html(driver.id)}" ${state.selectedDriverId === driver.id ? "checked" : ""}> <strong>${html(driver.name)}</strong>
-            <small>${html(driver.vehicle)} · ${html(driver.plateNumber)}</small><small>${html(driver.completedRides || 0)} completed · ${html(driver.cancelledRides || 0)} cancelled · ${html(driver.status)}${driver.eligible ? " · Eligible" : ""}</small>
-        </label>`).join("") || '<p class="muted">No drivers found.</p>';
-        $("#driver-list").querySelectorAll("input").forEach((input) => input.addEventListener("change", (event) => { state.selectedDriverId = event.target.value; loadDrivers(); }));
-    } catch (error) { $("#driver-list").innerHTML = `<p class="muted">${html(error.message)}</p>`; setFeedback(error.message); }
-}
+    if (!state.selectedRide) return;
+    const list = $("#driver-list");
+    const summary = $("#dispatch-summary");
+    if (state.selectedRide.status !== "REQUESTED") {
+        summary.textContent = "Dispatch is closed because this ride is no longer REQUESTED.";
+        list.innerHTML = '<p class="muted">No dispatch options for this ride.</p>';
+        $("#assign-button").disabled = true;
+        return;
+    }
 
+    summary.textContent = "Loading available drivers and ranking them by dispatch eligibility and pickup distance...";
+    list.innerHTML = '<p class="muted">Finding drivers...</p>';
+
+    try {
+        const data = await apiRequest(`/rides/${encodeURIComponent(state.selectedRide.id)}/dispatch-options`);
+        state.drivers = data.drivers || [];
+        const eligible = state.drivers.filter((driver) => driver.canAssign);
+        summary.textContent = eligible.length
+            ? `${eligible.length} driver${eligible.length === 1 ? "" : "s"} available. You choose who gets the ride.`
+            : "No ONLINE eligible drivers are currently available.";
+
+        list.innerHTML = state.drivers.map((driver) => {
+            const available = Boolean(driver.canAssign);
+            const distance = driver.distanceKm !== null && driver.distanceKm !== undefined
+                ? `${driver.distanceKm} km away`
+                : "Location unavailable";
+            const badge = available
+                ? '<span class="driver-badge">AVAILABLE</span>'
+                : '<span class="driver-badge offline">NOT AVAILABLE</span>';
+            return `<label class="driver-option ${state.selectedDriverId === driver.driverId ? "selected" : ""} ${available ? "" : "unavailable"}">
+                <input type="radio" name="driver" value="${html(driver.driverId)}" ${state.selectedDriverId === driver.driverId ? "checked" : ""} ${available ? "" : "disabled"}>
+                <strong>${html(driver.name)} <span class="driver-distance">${html(distance)}</span></strong>
+                <small>${html(driver.vehicle)} · ${html(driver.plateNumber)} ${badge}</small>
+                <small>${html(driver.completedRides || 0)} completed · ${html(driver.cancelledRides || 0)} cancelled · ${html(driver.availabilityStatus || "OFFLINE")}</small>
+            </label>`;
+        }).join("") || '<p class="muted">No drivers found.</p>';
+
+        list.querySelectorAll('input[name="driver"]:not(:disabled)').forEach((input) => input.addEventListener("change", (event) => {
+            state.selectedDriverId = event.target.value;
+            loadDrivers();
+        }));
+
+        const selectedStillAvailable = eligible.some((driver) => driver.driverId === state.selectedDriverId);
+        if (!selectedStillAvailable) {
+            state.selectedDriverId = null;
+            $("#assign-button").disabled = true;
+        }
+    } catch (error) {
+        list.innerHTML = `<p class="muted">${html(error.message)}</p>`;
+        summary.textContent = "Unable to load dispatch options.";
+        setFeedback(error.message);
+        $("#assign-button").disabled = true;
+    }
+}
 function renderLifecycleActions() {
     const actions = { REQUESTED: ["CANCELLED"], "DRIVER ASSIGNED": ["CANCELLED"], PAID: ["PICKED UP", "CANCELLED"], "PICKED UP": ["COMPLETED", "CANCELLED"] };
     $("#lifecycle-actions").innerHTML = (actions[state.selectedRide.status] || []).map((target) => `<button class="button ${target === "CANCELLED" ? "danger" : "secondary"}" data-target-status="${target}">${target}</button>`).join("") || '<span class="muted">No lifecycle actions available.</span>';
@@ -329,12 +373,27 @@ async function reloadSelected() {
 }
 
 async function assignDriver() {
-    if (!state.selectedRide || !state.selectedDriverId) { setFeedback("Select an eligible driver first."); return; }
+    if (!state.selectedRide || !state.selectedDriverId) {
+        setFeedback("Select an available driver first.");
+        return;
+    }
     if (state.mutationInProgress) return;
+
     state.mutationInProgress = true;
-    const button = $("#assign-button"); setBusy(button, true);
-    try { await apiRequest(`/rides/${encodeURIComponent(state.selectedRide.id)}/assign?driver_id=${encodeURIComponent(state.selectedDriverId)}`, { method: "POST" }); setFeedback("Driver assigned.", true); await reloadSelected(); }
-    catch (error) { setFeedback(error.message); } finally {
+    const button = $("#assign-button");
+    setBusy(button, true);
+
+    try {
+        await apiRequest(`/rides/${encodeURIComponent(state.selectedRide.id)}/assign?driver_id=${encodeURIComponent(state.selectedDriverId)}`, {
+            method: "POST"
+        });
+        setFeedback("Ride dispatched to the selected driver.", true);
+        state.selectedDriverId = null;
+        await reloadSelected();
+    } catch (error) {
+        setFeedback(error.message);
+        await loadDrivers();
+    } finally {
         setBusy(button, false);
         state.mutationInProgress = false;
         if (state.selectedRide) renderDetails();
