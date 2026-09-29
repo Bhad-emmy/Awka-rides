@@ -634,13 +634,4 @@ if (landingLoginForm && landingSignupForm) {
         event.preventDefault();
         await submitLandingAuth("/customer/auth/signup", landingSignupForm, "Creating your account...");
     });
-
-    (async () => {
-        try {
-            const response = await fetch(API_BASE + "/customer/auth/session", { credentials: "include" });
-            if (response.ok) window.location.href = "account.html";
-        } catch {
-            // Stay on the login screen when the API is unavailable.
-        }
-    })();
 }
