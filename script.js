@@ -567,3 +567,80 @@ if (bookingForm && bookingCustomerGate) {
         bookingForm.elements.destination.dispatchEvent(new Event("input", { bubbles: true }));
     }
 }
+
+
+const landingLoginForm = document.querySelector("#login-form");
+const landingSignupForm = document.querySelector("#signup-form");
+
+if (landingLoginForm && landingSignupForm) {
+    const loginTab = document.querySelector("#login-tab");
+    const signupTab = document.querySelector("#signup-tab");
+    const message = document.querySelector("#login-message");
+    const heading = document.querySelector("#login-heading");
+    const intro = document.querySelector("#login-intro");
+
+    function setLandingMode(mode) {
+        const loginMode = mode === "login";
+        landingLoginForm.hidden = !loginMode;
+        landingSignupForm.hidden = loginMode;
+        loginTab.classList.toggle("active", loginMode);
+        signupTab.classList.toggle("active", !loginMode);
+        heading.textContent = loginMode ? "Sign in to Ọka-Rides" : "Create your Ọka-Rides account";
+        intro.textContent = loginMode ? "Access your account before requesting a ride." : "Create your account once, then book rides across Awka.";
+        message.textContent = "";
+        message.classList.remove("error");
+    }
+
+    function setLandingMessage(text, isError = false) {
+        message.textContent = text;
+        message.classList.toggle("error", isError);
+    }
+
+    async function submitLandingAuth(path, form, loadingText) {
+        setLandingMessage(loadingText);
+        const submitButton = form.querySelector("button[type='submit']");
+        submitButton.disabled = true;
+
+        try {
+            const response = await fetch(API_BASE + path, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify(Object.fromEntries(new FormData(form)))
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(data.detail || "Authentication failed. Please try again.");
+            }
+
+            setLandingMessage("You're signed in. Opening your ride dashboard...");
+            window.location.href = "account.html";
+        } catch (error) {
+            setLandingMessage(error.message, true);
+            submitButton.disabled = false;
+        }
+    }
+
+    loginTab?.addEventListener("click", () => setLandingMode("login"));
+    signupTab?.addEventListener("click", () => setLandingMode("signup"));
+
+    landingLoginForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await submitLandingAuth("/customer/auth/login", landingLoginForm, "Signing you in...");
+    });
+
+    landingSignupForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await submitLandingAuth("/customer/auth/signup", landingSignupForm, "Creating your account...");
+    });
+
+    (async () => {
+        try {
+            const response = await fetch(API_BASE + "/customer/auth/session", { credentials: "include" });
+            if (response.ok) window.location.href = "account.html";
+        } catch {
+            // Stay on the login screen when the API is unavailable.
+        }
+    })();
+}
