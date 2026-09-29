@@ -524,11 +524,27 @@ $("#logout-button").addEventListener("click", async () => {
 
 async function initialize() {
     updateAlertsButton();
-    // Keep the login screen stable until the dispatcher explicitly submits credentials.
-    // Do not auto-authenticate or change the login UI during page load.
-    showLogin();
     clearInterval(alertPollTimer);
     stopRideAlert();
+
+    // Restore an already-authenticated dispatcher session on refresh.
+    // This checks the server session cookie; it does not submit the login form.
+    try {
+        const response = await fetch(`${API_BASE}/auth/session`, {
+            credentials: "include"
+        });
+        if (response.ok) {
+            showDispatcher();
+            await loadRides();
+            await checkForNewRideRequests();
+            startRideAlerts();
+            return;
+        }
+    } catch (_) {
+        // Stay on the login screen if the session check is unavailable.
+    }
+
+    showLogin();
 }
 
 initialize();
