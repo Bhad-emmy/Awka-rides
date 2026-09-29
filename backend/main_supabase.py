@@ -448,18 +448,18 @@ def normalize_nigerian_phone(phone: str) -> str:
 def termii_settings():
     api_key = os.getenv("TERMII_API_KEY")
     sender_id = os.getenv("TERMII_SENDER_ID", "OKA-RIDES")
-    channel = os.getenv("TERMII_CHANNEL", "generic").strip().lower()
     base_url = os.getenv(
         "TERMII_BASE_URL",
         "https://api.ng.termii.com/api",
     ).rstrip("/")
+    channel = os.getenv("TERMII_CHANNEL", "generic").strip().lower()
     if channel not in {"generic", "dnd"}:
         channel = "generic"
-    return api_key, sender_id, channel, base_url
+    return api_key, sender_id, base_url, channel
 
 
 async def send_driver_sms(driver_phone: str, message: str):
-    api_key, sender_id, channel, base_url = termii_settings()
+    api_key, sender_id, base_url, channel = termii_settings()
     if not api_key:
         return {"status": "SKIPPED", "reason": "TERMII_API_KEY is not configured."}
 
@@ -490,7 +490,7 @@ async def send_driver_sms(driver_phone: str, message: str):
         try:
             provider_error = response.json()
         except ValueError:
-            provider_error = {"message": response.text[:500]}
+            provider_error = response.text[:500]
         return {
             "status": "FAILED",
             "reason": f"SMS provider rejected the message ({response.status_code}).",
@@ -806,3 +806,403 @@ async def create_ride(
         "phone": customer.get("phone"),
         "email": customer.get("email"),
         "pickup": ride.pickup,
+        "destination": ride.destination,
+        "pickup_timing": ride.pickupTiming,
+        "scheduled_time": ride.scheduledTime or None,
+        "passengers": passengers,
+        "notes": ride.notes,
+        "vehicle": ride.vehicle,
+        "status": "REQUESTED",
+        "fare_confirmed": False,
+        "payment_status": "PENDING",
+        "pickup_latitude": ride.pickupLatitude,
+        "pickup_longitude": ride.pickupLongitude,
+        "destination_latitude": ride.destinationLatitude,
+        "destination_longitude": ride.destinationLongitude,
+    }
+
+    rows = await supabase_request(
+        "POST",
+        SUPABASE_TABLE_RIDES,
+        json_body=payload,
+        action_description="ride request",
+    )
+    created = rows[0] if rows else payload
+
+    dispatcher_message = (
+        f"OKA-RIDES: New ride {created.get('reference', reference)}. "
+        f"Customer: {created.get('name', customer.get('full_name', 'Customer'))}. "
+        f"Pickup: {created.get('pickup', ride.pickup)}. "
+        f"Destination: {created.get('destination', ride.destination)}. "
+        f"Pickup time: {created.get('pickup_timing', ride.pickupTiming)}. "
+        "Open the dispatcher dashboard to review and dispatch."
+    )
+    notification = await send_dispatcher_sms(dispatcher_message)
+
+    return {
+        "message": "Ride request created",
+        "reference": created.get("reference", reference),
+        "status": created.get("status", "REQUESTED"),
+        "supabaseRecordId": created.get("id"),
+        "dispatcherNotification": notification,
+    }
+
+
+@app.get("/api/rides/public/{reference}")
+async def public_ride_status(reference: str = Path(min_length=1)):
+    record = await find_ride_by_reference(reference)
+    return {
+        "reference": record.get("reference"),
+        "status": record.get("status"),
+        "fare": record.get("fare"),
+        "fareConfirmed": record.get("fare_confirmed", False),
+        "paymentStatus": record.get("payment_status"),
+        "driverAssigned": record.get("status") in {"DRIVER ASSIGNED", "PAID", "PICKED UP", "COMPLETED"},
+    }
+
+
+@app.get("/api/customer/auth/session")
+async def customer_session(customer_id: str = Depends(require_customer_session)):
+    customer = await get_customer_record(customer_id)
+    return {
+        "authenticated": True,
+        "customer": {
+            "id": customer.get("id"),
+            "fullName": customer.get("full_name"),
+            "phone": customer.get("phone"),
+            "email": customer.get("email"),
+        },
+    }
+
+
+@app.post("/api/customer/auth/signup", status_code=201)
+async def customer_signup(credentials: CustomerSignup, response: Response):
+    email = credentials.email.strip().lower()
+    phone = credentials.phone.strip()
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        raise HTTPException(status_code=422, detail="Enter a valid email address.")
+    if await find_customer_by_email(email):
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+    if await find_customer_by_phone(phone):
+        raise HTTPException(status_code=409, detail="An account with this phone number already exists.")
+
+    payload = {
+        "full_name": credentials.fullName.strip(),
+        "phone": phone,
+        "email": email,
+        "password_hash": hash_password(credentials.password),
+    }
+    rows = await supabase_request(
+        "POST", SUPABASE_TABLE_CUSTOMERS,
+        json_body=payload,
+        action_description="customer account creation",
+    )
+    customer = rows[0] if rows else None
+    if not customer:
+        raise HTTPException(status_code=502, detail="Customer account could not be created.")
+
+    response.set_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        value=create_session(str(customer["id"]), customer_session_secret(), CUSTOMER_SESSION_TTL),
+        max_age=CUSTOMER_SESSION_TTL,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
+    return {
+        "authenticated": True,
+        "customer": {
+            "id": customer.get("id"),
+            "fullName": customer.get("full_name"),
+            "phone": customer.get("phone"),
+            "email": customer.get("email"),
+        },
+    }
+
+
+@app.post("/api/customer/auth/login")
+async def customer_login(credentials: CustomerLogin, response: Response):
+    email = credentials.email.strip().lower()
+    customer = await find_customer_by_email(email)
+    if not customer or not verify_password(credentials.password, customer.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    response.set_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        value=create_session(str(customer["id"]), customer_session_secret(), CUSTOMER_SESSION_TTL),
+        max_age=CUSTOMER_SESSION_TTL,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
+    return {
+        "authenticated": True,
+        "customer": {
+            "id": customer.get("id"),
+            "fullName": customer.get("full_name"),
+            "phone": customer.get("phone"),
+            "email": customer.get("email"),
+        },
+    }
+
+
+@app.post("/api/customer/auth/logout")
+async def customer_logout(response: Response):
+    response.delete_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
+    return {"authenticated": False}
+
+
+@app.get("/api/customer/rides")
+async def customer_rides(customer_id: str = Depends(require_customer_session)):
+    rows = await supabase_request(
+        "GET", SUPABASE_TABLE_RIDES,
+        params={
+            "select": "*",
+            "customer_id": f"eq.{customer_id}",
+            "order": "created_at.desc",
+            "limit": "100",
+        },
+        action_description="customer ride history",
+    )
+    return {"rides": [ride_representation(row) for row in rows]}
+
+
+@app.get("/api/customer/rides/{reference}")
+async def customer_ride(
+    reference: str = Path(min_length=1),
+    customer_id: str = Depends(require_customer_session),
+):
+    record = await get_customer_ride(reference, customer_id)
+    status = record.get("status")
+    response = {
+        "reference": record.get("reference"),
+        "status": status,
+        "fare": record.get("fare"),
+        "fareConfirmed": record.get("fare_confirmed", False),
+        "paymentStatus": record.get("payment_status"),
+        "driverAssigned": status in {"DRIVER ASSIGNED", "PAID", "PICKED UP", "COMPLETED"},
+    }
+    if response["driverAssigned"]:
+        response.update({
+            "driverName": record.get("driver_name"),
+            "driverPhone": record.get("driver_phone"),
+            "driverVehicle": record.get("driver_vehicle"),
+            "driverPlateNumber": record.get("driver_plate_number"),
+        })
+    return response
+
+
+@app.post("/api/payments/paystack/initialize")
+async def initialize_paystack_payment(payment: PaystackInitialize):
+    secret = paystack_secret()
+    record = await find_ride_by_reference(payment.reference)
+
+    if (
+        record.get("status") != "DRIVER ASSIGNED"
+        or record.get("fare_confirmed") is not True
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Payment is only available after a driver is assigned and the fare is confirmed.",
+        )
+
+    if record.get("payment_status") == "PAID":
+        raise HTTPException(status_code=409, detail="This ride has already been paid.")
+
+    fare = record.get("fare")
+    try:
+        amount_kobo = naira_to_kobo(float(fare))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="This ride does not have a valid confirmed fare.",
+        ) from exc
+
+    safe_reference = (
+        "OKARIDE-"
+        + "".join(ch for ch in payment.reference if ch.isalnum() or ch in "-.=")
+        + "-"
+        + secrets.token_hex(4)
+    )
+
+    payload = {
+        "email": payment.email.strip(),
+        "amount": str(amount_kobo),
+        "currency": "NGN",
+        "reference": safe_reference,
+        "callback_url": paystack_callback_url(),
+        "metadata": {"ride_reference": payment.reference},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                f"{PAYSTACK_API_BASE}/transaction/initialize",
+                headers={
+                    "Authorization": f"Bearer {secret}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to initialize payment with Paystack.",
+        ) from exc
+
+    try:
+        response_payload = response.json()
+    except ValueError:
+        response_payload = {}
+
+    if response.is_error or response_payload.get("status") is not True:
+        raise HTTPException(
+            status_code=502,
+            detail="Paystack could not initialize the payment.",
+        )
+
+    data = response_payload.get("data") or {}
+    return {
+        "authorizationUrl": data.get("authorization_url"),
+        "accessCode": data.get("access_code"),
+        "reference": data.get("reference"),
+    }
+
+
+@app.get("/api/payments/paystack/callback")
+async def paystack_callback(reference: str = Query(min_length=1)):
+    secret = paystack_secret()
+    data = await fetch_paystack_transaction(reference, secret)
+    ride_reference = (data.get("metadata") or {}).get("ride_reference")
+
+    if not ride_reference:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment is missing ride metadata.",
+        )
+
+    record = await find_ride_by_reference(ride_reference)
+    fare = record.get("fare")
+    if not fare:
+        raise HTTPException(status_code=409, detail="Ride fare is unavailable.")
+
+    verified = await verify_paystack_transaction(
+        reference,
+        naira_to_kobo(float(fare)),
+        secret,
+    )
+    await mark_paystack_paid(record, verified)
+
+    frontend = os.getenv("FRONTEND_ORIGIN", "").split(",")[0].strip()
+    if frontend:
+        return RedirectResponse(
+            url=f"{frontend.rstrip('/')}/success.html?payment=success&reference={reference}"
+        )
+
+    return {"success": True, "reference": reference}
+
+
+@app.post("/api/payments/paystack/webhook")
+async def paystack_webhook(request: Request):
+    secret = paystack_secret()
+    raw_body = await request.body()
+    signature = request.headers.get("x-paystack-signature")
+
+    if not paystack_signature_is_valid(raw_body, signature, secret):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature.")
+
+    try:
+        event = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload.") from exc
+
+    if event.get("event") != "charge.success":
+        return {"received": True}
+
+    data = event.get("data") or {}
+    reference = data.get("reference")
+    ride_reference = (data.get("metadata") or {}).get("ride_reference")
+
+    if not reference or not ride_reference:
+        return {"received": True}
+
+    record = await find_ride_by_reference(ride_reference)
+    fare = record.get("fare")
+    if not fare:
+        raise HTTPException(status_code=409, detail="Ride fare is unavailable.")
+
+    verified = await verify_paystack_transaction(
+        reference,
+        naira_to_kobo(float(fare)),
+        secret,
+    )
+    await mark_paystack_paid(record, verified)
+
+    return {"received": True, "processed": True}
+
+
+@app.get("/api/rides")
+async def list_rides(
+    status: RideListStatus | None = Query(default=None),
+    _: str = Depends(require_dispatcher_session),
+):
+    params = {
+        "select": "*",
+        "order": "created_at.desc",
+        "limit": "100",
+    }
+    if status is not None:
+        params["status"] = f"eq.{status}"
+
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_RIDES,
+        params=params,
+        action_description="ride list",
+    )
+    return {"rides": [ride_representation(row) for row in rows]}
+
+
+@app.get("/api/rides/{ride_id}")
+async def get_ride(
+    ride_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    record = await get_ride_record(ride_id)
+    return ride_representation(record)
+
+
+@app.get("/api/drivers")
+async def list_drivers(_: str = Depends(require_dispatcher_session)):
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_DRIVERS,
+        params={
+            "select": "*",
+            "order": "completed_rides.desc,cancelled_rides.asc",
+            "limit": "100",
+        },
+        action_description="driver list",
+    )
+
+    drivers = []
+    for row in rows:
+        status = row.get("status", "INACTIVE")
+        verification_status = row.get("verification_status", "PENDING")
+        eligible = status == "ACTIVE" and verification_status == "VERIFIED"
+        drivers.append(
+            {
+                "id": row.get("driver_id"),
+                "driverId": row.get("driver_id"),
+                "name": row.get("name"),
+                "phone": row.get("phone"),
+                "vehicle": row.get("vehicle"),
+                "plateNumber": row.get("plate_number"),
