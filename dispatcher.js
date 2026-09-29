@@ -437,15 +437,31 @@ async function recordPayment() {
 async function updateStatus(button, status) { await mutate(button, `/rides/${encodeURIComponent(state.selectedRide.id)}/status`, { status }); }
 
 $("#alerts-button").addEventListener("click", enableAlerts);
-$("#view-new-ride-button").addEventListener("click", async () => {
-    if (!latestNewRide) return;
-    $("#new-ride-alert").hidden = true;
-    stopRideAlert();
-    await selectRide(latestNewRide.id);
-});
-$("#dismiss-new-ride-button").addEventListener("click", () => {
-    $("#new-ride-alert").hidden = true;
-    stopRideAlert();
+
+// Use delegated click handling for the ride-alert actions so the controls
+// continue to work even if the alert markup is refreshed or replaced.
+document.addEventListener("click", async (event) => {
+    const viewButton = event.target.closest("#view-new-ride-button");
+    if (viewButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!latestNewRide) return;
+        const ride = latestNewRide;
+        latestNewRide = null;
+        $("#new-ride-alert").hidden = true;
+        stopRideAlert();
+        await selectRide(ride.id);
+        return;
+    }
+
+    const dismissButton = event.target.closest("#dismiss-new-ride-button");
+    if (dismissButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        latestNewRide = null;
+        $("#new-ride-alert").hidden = true;
+        stopRideAlert();
+    }
 });
 $("#refresh-button").addEventListener("click", loadRides);
 $("#status-filter").addEventListener("change", loadRides);
