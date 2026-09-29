@@ -496,17 +496,11 @@ $("#logout-button").addEventListener("click", async () => {
 
 async function initialize() {
     updateAlertsButton();
-    try {
-        await apiRequest("/auth/session");
-        showDispatcher();
-        await loadRides();
-        await checkForNewRideRequests();
-        startRideAlerts();
-    } catch (error) {
-        showLogin();
-        clearInterval(alertPollTimer);
-        stopRideAlert();
-    }
+    // Keep the login screen stable until the dispatcher explicitly submits credentials.
+    // Do not auto-authenticate or change the login UI during page load.
+    showLogin();
+    clearInterval(alertPollTimer);
+    stopRideAlert();
 }
 
 initialize();
