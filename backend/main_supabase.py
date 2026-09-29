@@ -297,7 +297,8 @@ async def get_driver_record(driver_id: str) -> dict:
 def dispatcher_settings():
     username = os.getenv("DISPATCHER_USERNAME")
     password_hash = os.getenv("DISPATCHER_PASSWORD_HASH")
-    session_secret = os.getenv("DISPATCHER_SESSION_SECRET")    if not username or not password_hash or not session_secret:
+    session_secret = os.getenv("DISPATCHER_SESSION_SECRET")
+    if not username or not password_hash or not session_secret:
         raise HTTPException(
             status_code=500,
             detail="Dispatcher authentication is not configured on the server.",
