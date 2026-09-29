@@ -329,12 +329,39 @@ async function loadDrivers() {
                 <strong>${html(driver.name)} <span class="driver-distance">${html(distance)}</span></strong>
                 <small>${html(driver.vehicle)} · ${html(driver.plateNumber)} ${badge}</small>
                 <small>${html(driver.completedRides || 0)} completed · ${html(driver.cancelledRides || 0)} cancelled · ${html(driver.availabilityStatus || "OFFLINE")}</small>
+                <div class="driver-control">
+                    <select class="driver-availability" data-driver-id="${html(driver.driverId)}" aria-label="Availability for ${html(driver.name)}">
+                        ${["ONLINE","OFFLINE","BUSY"].map((status) => `<option value="${status}" ${String(driver.availabilityStatus || "OFFLINE") === status ? "selected" : ""}>${status}</option>`).join("")}
+                    </select>
+                    <button class="button light driver-availability-button" type="button" data-driver-id="${html(driver.driverId)}">Save</button>
+                </div>
             </label>`;
         }).join("") || '<p class="muted">No drivers found.</p>';
 
         list.querySelectorAll('input[name="driver"]:not(:disabled)').forEach((input) => input.addEventListener("change", (event) => {
             state.selectedDriverId = event.target.value;
             loadDrivers();
+        }));
+
+        list.querySelectorAll(".driver-availability-button").forEach((button) => button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const driverId = button.dataset.driverId;
+            const select = list.querySelector(`.driver-availability[data-driver-id="${CSS.escape(driverId)}"]`);
+            if (!select) return;
+            setBusy(button, true);
+            try {
+                await apiRequest(`/drivers/${encodeURIComponent(driverId)}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ availabilityStatus: select.value })
+                });
+                setFeedback(`Driver availability updated to ${select.value}.`, true);
+                await loadDrivers();
+            } catch (error) {
+                setFeedback(error.message);
+            } finally {
+                setBusy(button, false);
+            }
         }));
 
         const selectedStillAvailable = eligible.some((driver) => driver.driverId === state.selectedDriverId);
