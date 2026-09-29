@@ -822,11 +822,11 @@ async def create_ride(
     created = rows[0] if rows else payload
 
     dispatcher_message = (
-        f"OKA-RIDES: New ride {created.get("reference", reference)}. "
-        f"Customer: {created.get("name", customer.get("full_name", "Customer"))}. "
-        f"Pickup: {created.get("pickup", ride.pickup)}. "
-        f"Destination: {created.get("destination", ride.destination)}. "
-        f"Pickup time: {created.get("pickup_timing", ride.pickupTiming)}. "
+        f"OKA-RIDES: New ride {created.get('reference', reference)}. "
+        f"Customer: {created.get('name', customer.get('full_name', 'Customer'))}. "
+        f"Pickup: {created.get('pickup', ride.pickup)}. "
+        f"Destination: {created.get('destination', ride.destination)}. "
+        f"Pickup time: {created.get('pickup_timing', ride.pickupTiming)}. "
         "Open the dispatcher dashboard to review and dispatch."
     )
     notification = await send_dispatcher_sms(dispatcher_message)
