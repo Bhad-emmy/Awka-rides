@@ -374,8 +374,14 @@ async function loadDrivers() {
         const selectedStillAvailable = eligible.some((driver) => driver.driverId === state.selectedDriverId);
         if (!selectedStillAvailable) {
             state.selectedDriverId = null;
-            $("#assign-button").disabled = true;
         }
+
+        // Keep the dispatch button state synchronized after the driver list is
+        // rebuilt. A missing GPS location must not disable manual dispatch.
+        $("#assign-button").disabled = !state.selectedRide
+            || state.selectedRide.status !== "REQUESTED"
+            || !state.selectedDriverId
+            || !selectedStillAvailable;
     } catch (error) {
         list.innerHTML = `<p class="muted">${html(error.message)}</p>`;
         summary.textContent = "Unable to load dispatch options.";
