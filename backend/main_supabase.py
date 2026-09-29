@@ -493,6 +493,13 @@ async def send_driver_sms(driver_phone: str, message: str):
     return {"status": "SENT", "messageId": data.get("message_id")}
 
 
+async def send_dispatcher_sms(message: str):
+    phone = os.getenv("DISPATCHER_NOTIFICATION_PHONE", "").strip()
+    if not phone:
+        return {"status": "SKIPPED", "reason": "DISPATCHER_NOTIFICATION_PHONE is not configured."}
+    return await send_driver_sms(phone, message)
+
+
 async def notify_driver_of_assignment(ride: dict, driver: dict):
     reference = ride.get("reference", "N/A")
     customer = ride.get("name", "Customer")
@@ -814,11 +821,22 @@ async def create_ride(
     )
     created = rows[0] if rows else payload
 
+    dispatcher_message = (
+        f"OKA-RIDES: New ride {created.get("reference", reference)}. "
+        f"Customer: {created.get("name", customer.get("full_name", "Customer"))}. "
+        f"Pickup: {created.get("pickup", ride.pickup)}. "
+        f"Destination: {created.get("destination", ride.destination)}. "
+        f"Pickup time: {created.get("pickup_timing", ride.pickupTiming)}. "
+        "Open the dispatcher dashboard to review and dispatch."
+    )
+    notification = await send_dispatcher_sms(dispatcher_message)
+
     return {
         "message": "Ride request created",
         "reference": created.get("reference", reference),
         "status": created.get("status", "REQUESTED"),
         "supabaseRecordId": created.get("id"),
+        "dispatcherNotification": notification,
     }
 
 
