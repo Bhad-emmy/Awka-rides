@@ -469,8 +469,20 @@ $("#assign-button").addEventListener("click", assignDriver);
 $("#fare-button").addEventListener("click", confirmFare);
 $("#payment-button").addEventListener("click", recordPayment);
 
+let loginButtonClicked = false;
+
+$("#login-button").addEventListener("click", () => {
+    loginButtonClicked = true;
+});
+
 $("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+
+    // Do not allow browser autofill, Enter-key submission, or other implicit
+    // form submission to authenticate. Login requires an explicit button tap.
+    if (!loginButtonClicked) return;
+    loginButtonClicked = false;
+
     const button = $("#login-button");
     setBusy(button, true);
     $("#login-feedback").textContent = "";
