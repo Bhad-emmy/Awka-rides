@@ -1202,4 +1202,459 @@ async def list_drivers(_: str = Depends(require_dispatcher_session)):
                 "name": row.get("name"),
                 "phone": row.get("phone"),
                 "vehicle": row.get("vehicle"),
-                "plateNumber": row.get("plate_number"),
+                "plateNumber": row.get("plate_number"),                "status": status,
+                "verificationStatus": verification_status,
+                "completedRides": row.get("completed_rides", 0),
+                "cancelledRides": row.get("cancelled_rides", 0),
+                "notes": row.get("notes"),
+                "availabilityStatus": row.get("availability_status", "OFFLINE"),
+                "currentLatitude": row.get("current_latitude"),
+                "currentLongitude": row.get("current_longitude"),
+                "lastLocationAt": row.get("last_location_at"),
+                "eligible": eligible,
+            }
+        )
+
+    drivers.sort(
+        key=lambda driver: (
+            not driver["eligible"],
+            -driver["completedRides"],
+            driver["cancelledRides"],
+        )
+    )
+    return {"drivers": drivers}
+
+
+@app.post("/api/drivers", status_code=201)
+async def create_driver(
+    driver: DriverCreate,
+    _: str = Depends(require_dispatcher_session),
+):
+    payload = {
+        "driver_id": driver.driverId,
+        "name": driver.name,
+        "phone": driver.phone,
+        "vehicle": driver.vehicle,
+        "plate_number": driver.plateNumber,
+        "status": driver.status,
+        "verification_status": driver.verificationStatus,
+        "completed_rides": driver.completedRides,
+        "cancelled_rides": driver.cancelledRides,
+        "notes": driver.notes,
+    }
+
+    rows = await supabase_request(
+        "POST",
+        SUPABASE_TABLE_DRIVERS,
+        json_body=payload,
+        action_description="driver request",
+    )
+    created = rows[0] if rows else payload
+    return {
+        "message": "Driver created",
+        "driverId": created.get("driver_id", driver.driverId),
+        "supabaseRecordId": created.get("id"),
+    }
+
+
+@app.patch("/api/drivers/{driver_id}")
+async def update_driver(
+    driver: DriverUpdate,
+    driver_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    fields = {}
+    if driver.status is not None:
+        fields["status"] = driver.status
+    if driver.verificationStatus is not None:
+        fields["verification_status"] = driver.verificationStatus
+    if driver.availabilityStatus is not None:
+        if driver.availabilityStatus == "ONLINE" and (
+            driver.status == "INACTIVE" or driver.verificationStatus == "REJECTED"
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Only ACTIVE and VERIFIED drivers can go ONLINE.",
+            )
+        fields["availability_status"] = driver.availabilityStatus
+    if driver.currentLatitude is not None:
+        fields["current_latitude"] = driver.currentLatitude
+    if driver.currentLongitude is not None:
+        fields["current_longitude"] = driver.currentLongitude
+    if driver.notes is not None:
+        fields["notes"] = driver.notes
+
+    if not fields:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one driver field must be provided.",
+        )
+
+    existing_driver = await get_driver_record(driver_id)
+    effective_status = driver.status if driver.status is not None else existing_driver.get("status")
+    effective_verification = (
+        driver.verificationStatus
+        if driver.verificationStatus is not None
+        else existing_driver.get("verification_status")
+    )
+    if driver.availabilityStatus == "ONLINE" and (
+        effective_status != "ACTIVE" or effective_verification != "VERIFIED"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Only ACTIVE and VERIFIED drivers can go ONLINE.",
+        )
+
+    rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}"},
+        json_body=fields,
+        action_description="driver update",
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Driver not found.")
+    return {"message": "Driver updated", "driverId": driver_id}
+
+
+@app.get("/api/rides/{ride_id}/dispatch-options")
+async def dispatch_options(
+    ride_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    """
+    Human-in-the-loop dispatch.
+
+    The API ranks suitable drivers using live availability and, when both
+    ride and driver coordinates exist, straight-line distance. It NEVER
+    assigns a driver automatically. The dispatcher chooses a driver and
+    calls /assign.
+    """
+    ride = await get_ride_record(ride_id)
+    if ride.get("status") != "REQUESTED":
+        raise HTTPException(
+            status_code=409,
+            detail="Dispatch options are only available for REQUESTED rides.",
+        )
+
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_DRIVERS,
+        params={"select": "*", "limit": "100"},
+        action_description="dispatch driver lookup",
+    )
+
+    def distance_km(lat1, lon1, lat2, lon2):
+        if None in (lat1, lon1, lat2, lon2):
+            return None
+        from math import asin, cos, radians, sin, sqrt
+        dlat = radians(lat2 - lat1)
+        dlon = radians(lon2 - lon1)
+        a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+        return 6371.0 * 2 * asin(sqrt(a))
+
+    candidates = []
+    for row in rows:
+        active_verified = (
+            row.get("status") == "ACTIVE"
+            and row.get("verification_status") == "VERIFIED"
+        )
+        online = row.get("availability_status", "OFFLINE") == "ONLINE"
+        distance = distance_km(
+            ride.get("pickup_latitude"),
+            ride.get("pickup_longitude"),
+            row.get("current_latitude"),
+            row.get("current_longitude"),
+        )
+        candidates.append({
+            "driverId": row.get("driver_id"),
+            "name": row.get("name"),
+            "phone": row.get("phone"),
+            "vehicle": row.get("vehicle"),
+            "plateNumber": row.get("plate_number"),
+            "status": row.get("status"),
+            "verificationStatus": row.get("verification_status"),
+            "availabilityStatus": row.get("availability_status", "OFFLINE"),
+            "distanceKm": round(distance, 2) if distance is not None else None,
+            "completedRides": row.get("completed_rides", 0),
+            "cancelledRides": row.get("cancelled_rides", 0),
+            "canAssign": active_verified and online,
+        })
+
+    candidates.sort(
+        key=lambda item: (
+            not item["canAssign"],
+            item["distanceKm"] is None,
+            item["distanceKm"] if item["distanceKm"] is not None else float("inf"),
+            -item["completedRides"],
+            item["cancelledRides"],
+        )
+    )
+
+    return {
+        "ride": {
+            "id": ride.get("id"),
+            "reference": ride.get("reference"),
+            "pickup": ride.get("pickup"),
+            "destination": ride.get("destination"),
+            "pickupLatitude": ride.get("pickup_latitude"),
+            "pickupLongitude": ride.get("pickup_longitude"),
+        },
+        "dispatchMode": "MANUAL",
+        "message": "Select a driver to dispatch. No driver is assigned automatically.",
+        "drivers": candidates,
+    }
+
+
+@app.post("/api/rides/{ride_id}/assign")
+async def assign_driver(
+    driver_id: str,
+    ride_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    driver = await get_driver_record(driver_id)
+
+    if (
+        driver.get("status") != "ACTIVE"
+        or driver.get("verification_status") != "VERIFIED"
+        or driver.get("availability_status", "OFFLINE") != "ONLINE"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Driver must be ACTIVE, VERIFIED, and ONLINE before dispatch.",
+        )
+
+    ride = await get_ride_record(ride_id)
+    if ride.get("status") != "REQUESTED":
+        raise HTTPException(
+            status_code=409,
+            detail="Only REQUESTED rides can be assigned.",
+        )
+
+    fields = {
+        "status": "DRIVER ASSIGNED",
+        "driver_id": driver.get("driver_id"),
+        "driver_name": driver.get("name"),
+        "driver_phone": driver.get("phone"),
+        "driver_vehicle": driver.get("vehicle"),
+        "driver_plate_number": driver.get("plate_number"),
+    }
+
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={"id": f"eq.{ride_id}"},
+        json_body=fields,
+        action_description="ride assignment",
+    )
+
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}"},
+        json_body={"availability_status": "BUSY"},
+        action_description="driver availability update",
+    )
+
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={"id": f"eq.{ride_id}"},
+        json_body={
+            "dispatch_attempts": (ride.get("dispatch_attempts") or 0) + 1,
+            "dispatched_at": datetime.now(timezone.utc).isoformat(),
+        },
+        action_description="dispatch audit update",
+    )
+
+    ride_after = {**ride, **fields}
+    sms_result = await notify_driver_of_assignment(ride_after, driver)
+
+    return {
+        "message": "Driver assigned",
+        "rideId": ride_id,
+        "driverId": driver.get("driver_id"),
+        "status": "DRIVER ASSIGNED",
+        "smsNotification": sms_result,
+    }
+
+
+@app.patch("/api/rides/{ride_id}/fare")
+async def confirm_fare(
+    fare_update: FareUpdate,
+    ride_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    ride = await get_ride_record(ride_id)
+
+    if ride.get("status") != "DRIVER ASSIGNED":
+        raise HTTPException(
+            status_code=409,
+            detail="Fare can only be confirmed for DRIVER ASSIGNED rides.",
+        )
+
+    if not fare_update.fareConfirmed:
+        raise HTTPException(
+            status_code=422,
+            detail="Fare must be confirmed before payment can proceed.",
+        )
+
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,        params={"id": f"eq.{ride_id}"},
+        json_body={
+            "fare": fare_update.fare,
+            "fare_confirmed": True,
+            "payment_status": "PENDING",
+        },
+        action_description="fare confirmation",
+    )
+
+    return {
+        "success": True,
+        "rideId": ride_id,
+        "fare": fare_update.fare,
+        "fareConfirmed": True,
+        "paymentStatus": "PENDING",
+    }
+
+
+@app.patch("/api/rides/{ride_id}/payment")
+async def verify_payment(
+    payment: PaymentUpdate,
+    ride_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    ride = await get_ride_record(ride_id)
+
+    if ride.get("status") != "DRIVER ASSIGNED":
+        raise HTTPException(
+            status_code=409,
+            detail="Payment can only be verified for DRIVER ASSIGNED rides.",
+        )
+
+    if not ride.get("fare") or ride.get("fare_confirmed") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail="Payment requires a confirmed fare.",
+        )
+
+    if payment.paymentStatus == "PAID" and not payment.paymentReference.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Payment reference is required for PAID payments.",
+        )
+
+    fields = {"payment_status": payment.paymentStatus}
+    if payment.paymentStatus == "PAID":
+        fields.update(
+            {
+                "payment_reference": payment.paymentReference.strip(),
+                "payment_method": payment.paymentMethod,
+                "status": "PAID",
+            }
+        )
+    else:
+        fields.update(
+            {
+                "payment_reference": None,
+                "payment_method": None,
+            }
+        )
+
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={"id": f"eq.{ride_id}"},
+        json_body=fields,
+        action_description="payment update",
+    )
+
+    return {
+        "success": True,
+        "rideId": ride_id,
+        "paymentStatus": payment.paymentStatus,
+        "rideStatus": "PAID" if payment.paymentStatus == "PAID" else "DRIVER ASSIGNED",
+    }
+
+
+@app.patch("/api/rides/{ride_id}/status")
+async def update_ride_status(
+    status_update: RideStatusUpdate,
+    ride_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    ride = await get_ride_record(ride_id)
+    current_status = ride.get("status")
+
+    allowed_transitions = {
+        "PAID": {"PICKED UP", "CANCELLED"},
+        "PICKED UP": {"COMPLETED", "CANCELLED"},
+        "REQUESTED": {"CANCELLED"},
+        "DRIVER ASSIGNED": {"CANCELLED"},
+    }
+
+    if status_update.status not in allowed_transitions.get(current_status, set()):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot transition ride from {current_status or 'unknown'} "
+            f"to {status_update.status}.",
+        )
+
+    assigned_driver_id = ride.get("driver_id")
+    changes_driver_counter = status_update.status in {"COMPLETED", "CANCELLED"}
+    is_requested_cancellation = (
+        status_update.status == "CANCELLED" and current_status == "REQUESTED"
+    )
+
+    if changes_driver_counter and not is_requested_cancellation:
+        if not assigned_driver_id:
+            raise HTTPException(
+                status_code=409,
+                detail="This transition requires an assigned driver.",
+            )
+
+        driver = await get_driver_record(assigned_driver_id)
+        counter_field = (
+            "completed_rides"
+            if status_update.status == "COMPLETED"
+            else "cancelled_rides"
+        )
+        old_counter = driver.get(counter_field, 0)
+
+        if (
+            not isinstance(old_counter, int)
+            or isinstance(old_counter, bool)
+            or old_counter < 0
+        ):
+            raise HTTPException(
+                status_code=502,
+                detail=f"Assigned driver's {counter_field} value is invalid.",
+            )
+
+        driver_changes = {
+            counter_field: old_counter + 1,
+            "availability_status": "OFFLINE" if status_update.status == "CANCELLED" else "ONLINE",
+        }
+        await supabase_request(
+            "PATCH",
+            SUPABASE_TABLE_DRIVERS,
+            params={"driver_id": f"eq.{assigned_driver_id}"},
+            json_body=driver_changes,
+            action_description=f"driver {counter_field} update",
+        )
+
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={"id": f"eq.{ride_id}"},
+        json_body={"status": status_update.status},
+        action_description="ride status update",
+    )
+
+    return {
+        "success": True,
+        "rideId": ride_id,
+        "previousStatus": current_status,
+        "status": status_update.status,
+    }
