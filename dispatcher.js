@@ -343,6 +343,13 @@ async function loadDrivers() {
             loadDrivers();
         }));
 
+        // Mobile browsers can preserve a radio selection while the JS state
+        // is rebuilt. Sync the actual checked radio back into application state.
+        const checkedDriver = list.querySelector('input[name="driver"]:checked:not(:disabled)');
+        if (checkedDriver && !state.selectedDriverId) {
+            state.selectedDriverId = checkedDriver.value;
+        }
+
         list.querySelectorAll(".driver-availability-button").forEach((button) => button.addEventListener("click", async (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -400,6 +407,13 @@ async function reloadSelected() {
 }
 
 async function assignDriver() {
+    // Read the selected radio directly as a fallback for mobile/browser
+    // state restoration.
+    const checkedDriver = document.querySelector('input[name="driver"]:checked:not(:disabled)');
+    if (checkedDriver) {
+        state.selectedDriverId = checkedDriver.value;
+    }
+
     if (!state.selectedRide || !state.selectedDriverId) {
         setFeedback("Select an available driver first.");
         return;
