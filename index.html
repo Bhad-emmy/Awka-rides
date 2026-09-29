@@ -1,180 +1,49 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Ọka-Rides provides safe, affordable and reliable Keke transportation across Awka, day and night.">
-    <title>Ọka-Rides | Trusted 24/7 Keke service</title>
-    <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="awka-api-base" content="/api">
+<meta name="description" content="Sign in to Ọka-Rides and book safe, reliable Keke rides across Awka.">
+<title>Log In | Ọka-Rides</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<style>
+.login-page{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);background:#f8fafc}
+.login-brand{position:relative;display:flex;align-items:center;justify-content:center;padding:70px 8%;overflow:hidden;background:linear-gradient(145deg,#052e16,#14532d 55%,#166534);color:#fff}
+.login-brand:before,.login-brand:after{content:"";position:absolute;border:1px solid rgba(134,239,172,.18);border-radius:50%}
+.login-brand:before{width:560px;height:560px;right:-230px;top:-150px}.login-brand:after{width:360px;height:360px;left:-180px;bottom:-180px}
+.login-brand-content{position:relative;z-index:1;max-width:590px}.login-logo{display:inline-flex;align-items:center;gap:10px;margin-bottom:80px;color:#fff;font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;text-decoration:none}.login-logo .logo-mark{background:#22c55e}
+.login-eyebrow{display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;color:#bbf7d0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.login-eyebrow:before{content:"";width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 5px rgba(34,197,94,.14)}
+.login-brand h1{max-width:620px;margin-bottom:22px;font-family:'Space Grotesk',sans-serif;font-size:clamp(42px,5.5vw,72px);line-height:1.02;letter-spacing:-.055em}.login-brand h1 span{color:#4ade80}.login-brand-copy{max-width:520px;color:#d1fae5;font-size:17px;line-height:1.7}
+.login-features{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:42px}.login-feature{padding:15px;border:1px solid rgba(255,255,255,.12);border-radius:13px;background:rgba(255,255,255,.06)}.login-feature strong{display:block;margin-bottom:4px;font-family:'Space Grotesk',sans-serif;font-size:13px}.login-feature span{color:#bbf7d0;font-size:11px}
+.login-panel{display:flex;align-items:center;justify-content:center;padding:40px 7%;background:#fff}.login-card{width:min(430px,100%)}.login-card .eyebrow{margin-bottom:10px}.login-card h2{margin-bottom:10px;font-family:'Space Grotesk',sans-serif;font-size:38px;line-height:1.08;letter-spacing:-.04em}.login-card-intro{margin-bottom:28px;color:#64748b;font-size:14px}
+.login-tabs{display:grid;grid-template-columns:1fr 1fr;margin-bottom:24px;padding:4px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}.login-tab{border:0;border-radius:9px;padding:11px;background:transparent;color:#64748b;font-weight:700;cursor:pointer}.login-tab.active{background:#fff;color:#111827;box-shadow:0 2px 8px rgba(15,23,42,.08)}
+.login-form{display:grid;gap:16px}.login-form label{display:grid;gap:7px;color:#334155;font-size:12px;font-weight:700}.login-form input{width:100%;padding:13px 14px;border:1px solid #cbd5e1;border-radius:10px;outline:0;background:#fff;color:#111827;font-size:14px}.login-form input:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.1)}.login-form .button{width:100%;margin-top:4px}
+.login-message{min-height:20px;margin-bottom:12px;color:#166534;font-size:12px;font-weight:600}.login-message.error{color:#b91c1c}.login-helper{margin-top:22px;color:#94a3b8;text-align:center;font-size:11px;line-height:1.6}.login-footer{margin-top:42px;padding-top:18px;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:11px;text-align:center}
+@media(max-width:850px){.login-page{grid-template-columns:1fr}.login-brand{min-height:390px;padding:42px 7%}.login-logo{margin-bottom:45px}.login-brand h1{font-size:46px}.login-features{margin-top:28px}.login-panel{padding:42px 7% 60px}}
+@media(max-width:480px){.login-brand{min-height:330px}.login-brand h1{font-size:39px}.login-brand-copy{font-size:14px}.login-features{grid-template-columns:1fr}.login-feature:nth-child(3){display:none}.login-panel{padding:35px 20px 50px}.login-card h2{font-size:32px}}
+</style>
 </head>
 <body>
-    <nav class="site-nav" aria-label="Main navigation">
-        <a class="logo" href="#home" aria-label="Ọka-Rides home">
-            <span class="logo-mark" aria-hidden="true">↗</span>
-            <span>ỌKA-<strong>RIDES</strong></span>
-        </a>
-        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-menu" aria-label="Open menu">
-            <span></span><span></span><span></span>
-        </button>
-        <ul id="main-menu" class="nav-links">
-            <li><span class="open-badge"><span aria-hidden="true">●</span> OPEN 24/7</span></li>
-            <li><a href="#home">Home</a></li>
-            <li><a href="booking.html">Book Ride</a></li>
-            <li><a href="#why-us">Safety</a></li><li><a href="account.html">My Account</a></li>
-            <li><a href="#contact">Contact</a></li>
-            <li><a class="nav-cta" href="tel:09064636239">Call Now</a></li>
-        </ul>
-    </nav>
-
-    <main>
-        <section class="hero" id="home">
-            <div class="hero-content reveal">
-                <p class="eyebrow">Open 24 hours · Reliable Keke rides</p>
-                <h1>Awka's Trusted <span>24/7 Keke Service.</span></h1>
-                <p class="hero-description">Need a ride at any hour? Book safe, affordable and reliable Keke rides anywhere in Awka. Our dispatch team is available day and night.</p>
-                <div class="hero-actions">
-                    <a class="button button-primary" href="booking.html">Book a Ride <span aria-hidden="true">→</span></a>
-                    <a class="button button-whatsapp button-whatsapp-primary" href="https://wa.me/2349064636239?text=Hello%20%E1%BB%8Cka-Rides%2C%0A%0AI%27d%20like%20to%20book%20a%20Keke%20ride.%0A%0AName%3A%0A%0APickup%20Location%3A%0A%0ADestination%3A%0A%0APreferred%20Pickup%20Time%3A%0A%0APhone%20Number%3A%0A%0AAdditional%20Notes%3A%0A%0APlease%20assign%20an%20available%20rider.%0A%0AThank%20you." target="_blank" rel="noopener">💬 Book via WhatsApp <span aria-hidden="true">↗</span></a>
-                    <button class="button button-ghost" type="button" disabled>Become a rider <small>Coming soon</small></button>
-                </div>
-                <div class="trust-row">
-                    <span><span class="status-dot"></span> Dispatcher-supported</span>
-                    <span>Serving Awka, Anambra</span>
-                </div>
-                <div class="hero-contact">
-                    <strong><span class="status-dot"></span> Available 24 Hours</strong>
-                    <a href="tel:09064636239">☎ 09064636239</a>
-                    <a href="tel:08160552860">☎ 08160552860</a>
-                    <a href="https://wa.me/2349064636239">💬 Call or WhatsApp Anytime</a>
-                </div>
-                <p class="hero-trust">We're always available. Call or send us a WhatsApp message and we'll dispatch a rider immediately.</p>
-            </div>
-            <div class="hero-art reveal" aria-label="Illustration of a tricycle on a city route" role="img">
-                <div class="art-glow"></div>
-                <div class="route-line"><span></span><span></span><span></span></div>
-                <div class="city-block block-one"></div><div class="city-block block-two"></div><div class="city-block block-three"></div>
-                <div class="vehicle vehicle-keke" aria-hidden="true">
-                    <div class="vehicle-roof"></div><div class="vehicle-body"></div><i></i><i></i>
-                </div>
-                <div class="art-label"><span class="pin">+</span> Awka city rides</div>
-            </div>
-        </section>
-
-        <section class="payment-notice reveal" aria-labelledby="payment-notice-heading">
-  <p class="eyebrow">Important payment notice</p>
-  <h2 id="payment-notice-heading">Only pay to the official Ọka-Rides OPay account.</h2>
-  <p>For your safety, do not send ride payments to any rider or any other account. After your fare is confirmed, pay only to the OPay details shown on the site and keep your payment confirmation.</p>
-  <p><strong>OPay: 9066929361 · Edwin Chukwuemeka Precious</strong></p>
-</section>
-
-        <section class="quick-contact-bar" aria-label="Quick contact options">
-            <a href="tel:09064636239">📞 <span><small>Call Now</small><strong>09064636239</strong></span></a>
-            <a href="tel:08160552860">📞 <span><small>Call Now</small><strong>08160552860</strong></span></a>
-            <a href="https://wa.me/2349064636239">💬 <span><small>Contact us</small><strong>WhatsApp Available</strong></span></a>
-            <span>🟢 <strong>Open 24 Hours</strong></span>
-        </section>
-
-        <section class="highlight-strip" aria-label="Ọka-Rides highlights">
-            <div class="highlight-card reveal"><span class="highlight-icon">▰</span><strong>Reliable Keke Riders</strong><small>Quick local rides</small></div>
-            <div class="highlight-card reveal"><span class="highlight-icon">✓</span><strong>Verified Riders</strong><small>Ride with confidence</small></div>
-            <div class="highlight-card reveal"><span class="highlight-icon">ϟ</span><strong>Fast Dispatch</strong><small>We move quickly</small></div>
-            <div class="highlight-card reveal"><span class="highlight-icon">⌖</span><strong>Across Awka</strong><small>Local knowledge</small></div>
-            <div class="highlight-card reveal"><span class="highlight-icon">◷</span><strong>24-Hour Service</strong><small>Day or night</small></div>
-        </section>
-
-        <section class="section" id="vehicles">
-            <div class="section-header reveal">
-                <p class="eyebrow">Your everyday ride</p>
-                <h2>Reliable Keke rides across Awka.</h2>
-                <p>Affordable, convenient transportation with local dispatch support whenever you need it.</p>
-            </div>
-            <div class="vehicle-grid">
-                <article class="vehicle-card reveal">
-                    <div class="service-visual" aria-hidden="true">🛺</div>
-                    <div class="card-icon keke-icon" aria-hidden="true">▰</div>
-                    <div class="card-top"><span class="tag">Everyday</span><span class="arrival">Estimated arrival: To be confirmed</span></div>
-                    <h3>Keke Ride</h3>
-                    <p>Affordable and convenient transportation across Awka.</p>
-                    <div class="card-footer"><span>Starting fare</span><strong>To be confirmed</strong></div>
-                    <a class="card-button" href="booking.html">Book Now <span aria-hidden="true">→</span></a>
-                </article>
-            </div>
-        </section>
-
-        <section class="section about-section" id="about">
-            <div class="about-copy reveal">
-                <p class="eyebrow">Built for Awka</p>
-                <h2>Local rides, with a human touch.</h2>
-                <p>Ọka-Rides is a locally focused transportation platform providing safe, affordable and reliable tricycle transportation throughout Awka. Our human dispatch team is available 24/7 to help connect you with a trusted rider.</p>
-            </div>
-            <div class="about-stat reveal"><strong>24/7</strong><span>Human dispatch support</span><small>Focused on Awka and its neighborhoods</small></div>
-        </section>
-
-        <section class="section muted-section" id="why-us">
-            <div class="section-header reveal">
-                <p class="eyebrow">The Ọka-Rides difference</p>
-                <h2>Simple by design. <span>Thoughtful by default.</span></h2>
-            </div>
-            <div class="feature-grid">
-                <article class="feature-card reveal"><span class="feature-icon">◷</span><h3>24/7 availability</h3><p>Request a ride whenever your day—or night—needs one.</p></article>
-                <article class="feature-card reveal"><span class="feature-icon">✓</span><h3>Friendly riders</h3><p>Enjoy a respectful, customer-first ride experience.</p></article>
-                <article class="feature-card reveal"><span class="feature-icon">₦</span><h3>Affordable pricing</h3><p>Fair local rides without complicated pricing or surprises.</p></article>
-                <article class="feature-card reveal"><span class="feature-icon">↗</span><h3>Safe trips</h3><p>We put your comfort and safety first on every trip.</p></article>
-                <article class="feature-card reveal"><span class="feature-icon">⌖</span><h3>Local knowledge</h3><p>Local dispatch support that understands Awka's roads and landmarks.</p></article>
-            </div>
-        </section>
-
-        <section class="section" id="how-it-works">
-            <div class="section-header reveal">
-                <p class="eyebrow">How it works</p>
-                <h2>From request to ride in four steps.</h2>
-            </div>
-            <div class="steps-grid">
-                <article class="step-card reveal"><span>01</span><div class="step-line"></div><h3>Book online</h3><p>Share your pickup point and destination.</p></article>
-                <article class="step-card reveal"><span>02</span><div class="step-line"></div><h3>Dispatcher receives request</h3><p>Our team reviews your ride details.</p></article>
-                <article class="step-card reveal"><span>03</span><div class="step-line"></div><h3>Nearest rider assigned</h3><p>An available tricycle rider is contacted.</p></article>
-                <article class="step-card reveal"><span>04</span><div class="step-line"></div><h3>Enjoy your ride</h3><p>Arrive safely at your destination.</p></article>
-            </div>
-        </section>
-
-        <section class="section coverage-section" id="coverage">
-            <div class="section-header reveal">
-                <p class="eyebrow">Right where you need us</p>
-                <h2>We serve every part of Awka.</h2>
-                <p>We provide tricycle transportation across Awka and surrounding neighborhoods. These are example locations we serve.</p>
-            </div>
-            <div class="location-grid">
-                <div class="location-card reveal">Aroma Junction <span>↗</span></div>
-                <div class="location-card reveal">Unizik Junction <span>↗</span></div>
-                <div class="location-card reveal">Temporary Site <span>↗</span></div>
-                <div class="location-card reveal">Amawbia <span>↗</span></div>
-                <div class="location-card reveal">Ifite <span>↗</span></div>
-                <div class="location-card reveal">Zik Avenue <span>↗</span></div>
-            </div>
-            <span class="coverage-badge reveal">More Locations Coming Soon</span>
-        </section>
-
-        <section class="contact-section section" id="contact">
-            <div class="section-header reveal">
-                <p class="eyebrow">We're ready to help</p>
-                <h2>Need Help?</h2>
-                <p>Skip the booking form and message us directly on WhatsApp. Our dispatch team is available 24 hours.</p>
-            </div>
-            <div class="contact-grid">
-                <a class="contact-card reveal" href="tel:09064636239"><span class="contact-card-icon">☎</span><span><small>Call Now</small><strong>09064636239</strong></span><span class="contact-arrow">→</span></a>
-                <a class="contact-card reveal" href="https://wa.me/2349064636239"><span class="contact-card-icon whatsapp-icon">◌</span><span><small>WhatsApp</small><strong>09064636239</strong></span><span class="contact-arrow">→</span></a>
-                <a class="contact-card reveal" href="tel:08160552860"><span class="contact-card-icon">☎</span><span><small>Call Now</small><strong>08160552860</strong></span><span class="contact-arrow">→</span></a>
-                <a class="contact-card reveal" href="https://wa.me/2348160552860"><span class="contact-card-icon whatsapp-icon">◌</span><span><small>WhatsApp</small><strong>08160552860</strong></span><span class="contact-arrow">→</span></a>
-                <div class="contact-card hours-card reveal"><span class="contact-card-icon">◷</span><span><small>Operating Hours</small><strong><span class="status-dot"></span> Open 24 Hours</strong></span></div>
-            </div>
-        </section>
-
-        <section class="final-cta reveal"><div><p class="eyebrow">Available day and night</p><h2>Need a Ride Right Now?</h2><p>Book online or message us on WhatsApp. Our dispatch team is available 24 hours.</p></div><div class="cta-actions"><a class="button button-light" href="booking.html">Book Ride <span aria-hidden="true">→</span></a><a class="button button-whatsapp button-whatsapp-primary" href="https://wa.me/2349064636239?text=Hello%20%E1%BB%8Cka-Rides%2C%0A%0AI%27d%20like%20to%20book%20a%20Keke%20ride.%0A%0AName%3A%0A%0APickup%20Location%3A%0A%0ADestination%3A%0A%0APreferred%20Pickup%20Time%3A%0A%0APhone%20Number%3A%0A%0AAdditional%20Notes%3A%0A%0APlease%20assign%20an%20available%20rider.%0A%0AThank%20you." target="_blank" rel="noopener">💬 Chat on WhatsApp <span aria-hidden="true">↗</span></a></div></section>
-    </main>
-
-    <footer><div><a class="logo" href="#home"><span class="logo-mark" aria-hidden="true">↗</span><span>ỌKA-<strong>RIDES</strong></span></a><p>Safe, reliable rides around Awka.</p></div><div class="footer-contact"><a href="tel:09064636239">☎ 09064636239</a><a href="tel:08160552860">☎ 08160552860</a><a href="https://wa.me/2349064636239">◌ WhatsApp Available</a><a href="mailto:hello@awkarides.com">✉ hello@awkarides.com</a></div><div class="hours"><span class="status-dot"></span><strong>Open 24 Hours</strong><small>Serving Awka, Anambra State</small></div><small>© 2026 Ọka-Rides. Built for Awka.</small></footer>
-    <div class="floating-actions" aria-label="Quick contact actions"><a class="floating-whatsapp" href="https://wa.me/2349064636239" aria-label="Chat on WhatsApp">◌ <span>Chat on WhatsApp</span></a><a class="floating-call" href="tel:09064636239" aria-label="Call Now">☎ <span>Call Now</span></a></div>
-    <script src="script.js"></script>
+<main class="login-page">
+<section class="login-brand"><div class="login-brand-content">
+<a class="login-logo" href="index.html" aria-label="Ọka-Rides"><span class="logo-mark">↗</span><span>ỌKA-<strong>RIDES</strong></span></a>
+<p class="login-eyebrow">Awka's local ride platform</p>
+<h1>Move around Awka with <span>confidence.</span></h1>
+<p class="login-brand-copy">Sign in to manage your rides, track your bookings, and request reliable Keke transportation with Ọka-Rides.</p>
+<div class="login-features"><div class="login-feature"><strong>24/7 Service</strong><span>Day or night</span></div><div class="login-feature"><strong>Local Dispatch</strong><span>Built for Awka</span></div><div class="login-feature"><strong>Ride History</strong><span>All in one place</span></div></div>
+</div></section>
+<section class="login-panel"><div class="login-card">
+<p class="eyebrow">Welcome back</p><h2 id="login-heading">Sign in to Ọka-Rides</h2><p class="login-card-intro" id="login-intro">Access your account before requesting a ride.</p>
+<div class="login-tabs" role="tablist" aria-label="Account access"><button class="login-tab active" id="login-tab" type="button">Log In</button><button class="login-tab" id="signup-tab" type="button">Create Account</button></div>
+<p class="login-message" id="login-message" role="status" aria-live="polite"></p>
+<form class="login-form" id="login-form"><label>Email Address<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><button class="button button-primary" type="submit">Log In <span>→</span></button></form>
+<form class="login-form" id="signup-form" hidden><label>Full Name<input type="text" name="fullName" autocomplete="name" required></label><label>Phone Number<input type="tel" name="phone" autocomplete="tel" required></label><label>Email Address<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="new-password" minlength="8" required></label><button class="button button-primary" type="submit">Create Account <span>→</span></button></form>
+<p class="login-helper">Your account is required before booking a ride. Your personal details are used to manage your bookings.</p>
+<div class="login-footer">© 2026 Ọka-Rides · Serving Awka, Anambra</div>
+</div></section>
+</main>
+<script src="script.js"></script>
 </body>
 </html>
