@@ -297,8 +297,7 @@ async def get_driver_record(driver_id: str) -> dict:
 def dispatcher_settings():
     username = os.getenv("DISPATCHER_USERNAME")
     password_hash = os.getenv("DISPATCHER_PASSWORD_HASH")
-    session_secret = os.getenv("DISPATCHER_SESSION_SECRET")
-    if not username or not password_hash or not session_secret:
+    session_secret = os.getenv("DISPATCHER_SESSION_SECRET")    if not username or not password_hash or not session_secret:
         raise HTTPException(
             status_code=500,
             detail="Dispatcher authentication is not configured on the server.",
@@ -490,7 +489,7 @@ async def send_driver_sms(driver_phone: str, message: str):
         try:
             provider_error = response.json()
         except ValueError:
-            provider_error = response.text[:500]
+            provider_error = response.text[:1000]
         return {
             "status": "FAILED",
             "reason": f"SMS provider rejected the message ({response.status_code}).",
@@ -606,7 +605,6 @@ def paystack_signature_is_valid(
         hashlib.sha512,
     ).hexdigest()
     return hmac.compare_digest(expected, supplied_signature)
-
 
 async def verify_paystack_transaction(
     reference: str,
@@ -905,8 +903,7 @@ async def customer_signup(credentials: CustomerSignup, response: Response):
         key=CUSTOMER_SESSION_COOKIE,
         value=create_session(str(customer["id"]), customer_session_secret(), CUSTOMER_SESSION_TTL),
         max_age=CUSTOMER_SESSION_TTL,
-        httponly=True,
-        secure=True,
+        httponly=True,        secure=True,
         samesite="lax",
         path="/api",
     )
