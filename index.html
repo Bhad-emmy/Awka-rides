@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#16A34A">
+<meta name="theme-color" content="#21A366">
 <title>Ọka-Rides</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -11,104 +11,134 @@
 </head>
 <body>
 <div class="app-shell">
-  <header class="app-header">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">➜</span><span>ỌKA-<b>RIDES</b></span></div>
-    <button class="icon-btn" id="account-btn" aria-label="Account"><span class="ui-icon user-icon"></span></button>
-  </header>
+  <section class="screen splash-screen active" data-screen="splash">
+    <div class="splash-brand">ỌKA<span>-RIDES</span></div>
+    <div class="splash-mark" aria-hidden="true">
+      <div class="splash-keke"><span></span><i></i><b></b></div>
+    </div>
+    <div class="splash-bottom">
+      <p>AWKA • 24/7</p>
+      <h1>Move around Awka<br>with confidence.</h1>
+      <p class="splash-description">Book a Keke, follow your ride and stay connected with our human dispatch team.</p>
+      <button class="primary wide" id="splash-login">Log in</button>
+      <button class="secondary wide" id="splash-signup">Create account</button>
+      <button class="google-btn wide" id="google-login"><b>G</b> Continue with Google</button>
+      <button class="text-btn continue-btn" id="continue-session" hidden>Continue to Ọka-Rides</button>
+      <small id="session-note"></small>
+    </div>
+  </section>
 
   <main id="screen">
-    <section class="screen active splash-screen" data-screen="splash">
-  <div class="splash-art"><div class="splash-visual" aria-label="Ọka-Rides"><div class="road road-one"></div><div class="road road-two"></div><div class="keke"><span class="keke-roof"></span><span class="keke-body"></span><span class="keke-wheel left"></span><span class="keke-wheel right"></span><span class="keke-light"></span></div><div class="splash-badge">ỌKA-RIDES</div></div></div>
-  <div class="splash-copy"><p class="eyebrow">AWKA • 24/7</p><h1>Move around Awka with confidence.</h1><p>Book a Keke, follow your ride and stay connected with our human dispatch team.</p></div>
-  <div class="splash-actions">
-    <button class="primary wide" id="splash-login">Log in</button>
-    <button class="secondary wide" id="splash-signup">Create account</button>
-    <button class="google-btn wide" id="google-login"><span>G</span> Continue with Google</button>
-    <button class="text-btn continue-btn" id="continue-session" hidden>Continue to Ọka-Rides</button>
-    <p class="session-note" id="session-note"></p>
-  </div>
-</section>
     <section class="screen" data-screen="home">
-      <div class="welcome">
-        <p class="eyebrow">OPEN 24/7</p>
-        <h1>Where are you going?</h1>
-        <p>Book a Keke across Awka in a few taps.</p>
+      <div class="home-top">
+        <div class="home-brand">ỌKA<span>-RIDES</span></div>
+        <button class="round-icon" id="home-account" aria-label="Account"><span class="icon icon-user"></span></button>
       </div>
-      <button class="location-card" id="start-booking">
-        <span class="pin ui-icon pin-icon"></span>
-        <span><small>Pickup location</small><strong>Choose pickup point</strong></span>
-        <span>›</span>
+
+      <button class="promo-card" id="promo-card">
+        <span class="promo-icon icon-tag"></span>
+        <span><b>Ride with Ọka-Rides</b><small>Safe local dispatch across Awka</small></span>
+        <span class="chevron">›</span>
       </button>
-      <div class="quick-actions">
-        <button id="quick-book"><span class="ui-icon plus-icon"></span>Book a ride</button>
-        <a href="tel:09064636239"><span class="ui-icon phone-icon"></span>Call dispatch</a>
-        <a href="https://wa.me/2349064636239" target="_blank" rel="noopener"><span class="ui-icon chat-icon"></span>WhatsApp</a>
+
+      <h1 class="home-heading">Ready, set, ride.</h1>
+
+      <div class="service-tiles">
+        <button data-go="book"><span class="tile-art keke-art"></span><b>Rides</b><small>Let's get moving</small></button>
+        <button data-go="book"><span class="tile-art schedule-art"></span><b>Schedule</b><small>Book ahead</small></button>
+        <button id="call-dispatch"><span class="tile-art box-art">↗</span><b>Dispatch</b><small>Human support</small></button>
       </div>
-      <section class="home-card">
-        <div><p class="eyebrow">Your rides</p><h2>Need a ride now?</h2><p>Request online and our human dispatcher will contact an available rider.</p></div>
-        <button class="primary" id="home-book">Book now →</button>
-      </section>
-      <section class="service-row"><div><b>24/7</b><span>Dispatch</span></div><div><b>Awka</b><span>Local service</span></div><div><b>Human</b><span>Support</span></div></section>
+
+      <button class="where-card" data-go="book">
+        <span class="icon icon-search"></span>
+        <strong>Where to?</strong>
+        <span class="later">Now</span>
+      </button>
+
+      <div class="recent-places">
+        <button data-go="book"><span class="place-icon icon-clock"></span><span><b>Choose pickup location</b><small>Awka, Anambra</small></span></button>
+        <button data-go="book"><span class="place-icon icon-pin"></span><span><b>Choose destination</b><small>Enter where you are going</small></span></button>
+      </div>
     </section>
 
     <section class="screen" data-screen="book">
-      <div class="screen-title"><button class="back" data-go="home" aria-label="Back">‹</button><div><p class="eyebrow">NEW RIDE</p><h1>Book a ride</h1></div></div>
+      <div class="page-head"><button class="back round-icon" data-go="home">‹</button><h1>Book a ride</h1></div>
       <form id="app-booking-form" class="app-form">
         <label>Pickup<input name="pickup" placeholder="e.g. Aroma Junction" required></label>
         <label>Destination<input name="destination" placeholder="Where are you going?" required></label>
-        <div class="two"><label>Pickup time<select name="pickupTiming" required><option value="">Select</option><option>Now</option><option>Schedule</option></select></label><label>Passengers<select name="passengers" required><option value="">Select</option><option>1</option><option>2</option><option>3</option></select></label></div>
+        <div class="two">
+          <label>Pickup time<select name="pickupTiming" required><option value="">Select</option><option>Now</option><option>Schedule</option></select></label>
+          <label>Passengers<select name="passengers" required><option value="">Select</option><option>1</option><option>2</option><option>3</option></select></label>
+        </div>
         <label>Phone<input name="phone" type="tel" placeholder="09064636239" required></label>
         <label>Notes <span>(optional)</span><textarea name="notes" rows="3" placeholder="Landmark or anything the rider should know"></textarea></label>
         <p class="form-error" id="app-booking-message"></p>
-        <button class="primary wide" type="submit">Request Keke →</button>
+        <button class="primary wide" type="submit">Request Keke</button>
       </form>
-      <div class="mini-help"><span>Need help?</span><a href="tel:09064636239">Call dispatch</a></div>
     </section>
 
-    <section class="screen" data-screen="rides">
-      <div class="screen-title"><div><p class="eyebrow">ACTIVITY</p><h1>My rides</h1></div><button class="text-btn" id="refresh-rides">Refresh</button></div>
-      <div id="ride-list" class="ride-list"><div class="empty"><span class="ride-illustration" aria-hidden="true">🛺</span><h2>No rides yet</h2><p>Your completed and active rides will appear here.</p><button class="secondary" data-go="book">Book a ride</button></div></div>
+    <section class="screen" data-screen="activity">
+      <div class="page-head"><h1>Activity</h1><button class="round-icon" id="refresh-rides" aria-label="Refresh">↻</button></div>
+      <div id="active-ride"></div>
+      <div class="activity-title">Your rides</div>
+      <div id="ride-list" class="ride-list"><div class="empty"><span class="empty-icon">🛺</span><h2>No rides yet</h2><p>Your active and completed rides will appear here.</p></div></div>
     </section>
 
     <section class="screen" data-screen="account">
-      <div class="screen-title"><div><p class="eyebrow">ACCOUNT</p><h1>My account</h1></div></div>
-      <div class="profile"><div class="avatar">M</div><div><p class="account-loading" id="account-loading">Checking account…</p><h2 id="profile-name">Guest</h2><p id="profile-email">Sign in to manage your rides</p></div></div>
-      <div class="settings-list">
-        <button id="account-auth-action" data-go-login hidden><span class="ui-icon login-icon"></span><div><b>Sign in / Create account</b><small>Save your ride history</small></div><i>›</i></button>
-        <a href="tel:09064636239"><span class="ui-icon phone-icon"></span><div><b>Call dispatch</b><small>09064636239</small></div><i>›</i></a>
-        <a href="https://wa.me/2349064636239" target="_blank" rel="noopener"><span class="ui-icon chat-icon"></span><div><b>WhatsApp</b><small>Chat with Ọka-Rides</small></div><i>›</i></a>
+      <div class="page-head"><h1>Account</h1><button class="round-icon" aria-label="Settings"><span class="icon icon-sliders"></span></button></div>
+      <div class="account-header">
+        <div><h2 id="profile-name">Guest</h2><div class="rating"><span>★</span> 5.00 <i>i</i></div><p id="profile-email">Sign in to manage your rides</p></div>
+        <div class="avatar-large"><span class="icon icon-user"></span></div>
       </div>
+
+      <div class="account-card">
+        <button id="account-auth-action" data-go-login hidden><span class="row-icon icon-login"></span><span><b>Sign in / Create account</b><small>Save your ride history</small></span><span class="chevron">›</span></button>
+        <button><span class="row-icon icon-user"></span><span><b>Profile</b><small>Manage your personal details</small></span><span class="chevron">›</span></button>
+        <button><span class="row-icon icon-wallet"></span><span><b>Payment</b><small>Manage payment methods</small></span><span class="chevron">›</span></button>
+        <a href="tel:09064636239"><span class="row-icon icon-help">?</span><span><b>Support</b><small>Talk to Ọka-Rides</small></span><span class="chevron">›</span></a>
+        <button><span class="row-icon icon-shield"></span><span><b>Safety</b><small>Ride safely with our dispatch team</small></span><span class="chevron">›</span></button>
+        <button><span class="row-icon icon-pin"></span><span><b>Saved places</b><small>Save places you visit often</small></span><span class="chevron">›</span></button>
+        <button><span class="row-icon icon-settings"></span><span><b>Settings</b><small>App and account settings</small></span><span class="chevron">›</span></button>
+      </div>
+
+      <div class="account-card secondary-card">
+        <button><span class="row-icon icon-plus">+</span><span><b>Ọka-Rides Plus</b><small>More benefits for frequent riders</small></span><span class="chevron">›</span></button>
+        <button><span class="row-icon icon-tag"></span><span><b>Promotions</b><small>Offers and savings</small></span><span class="chevron">›</span></button>
+        <button><span class="row-icon icon-family"></span><span><b>Family Profile</b><small>Manage family rides</small></span><span class="chevron">›</span></button>
+        <button><span class="row-icon icon-work"></span><span><b>Work Profile</b><small>Separate work rides</small></span><span class="chevron">›</span></button>
+        <button><span class="row-icon icon-wallet"></span><span><b>Earn with Ọka-Rides</b><small>Become a driver or rider partner</small></span><span class="chevron">›</span></button>
+      </div>
+      <button class="logout-btn" id="logout-btn" hidden>Log out</button>
     </section>
 
     <section class="screen" data-screen="login">
-      <div class="screen-title"><button class="back" data-go="account">‹</button><div><p class="eyebrow">WELCOME BACK</p><h1>Sign in</h1></div></div>
+      <div class="page-head"><button class="back round-icon" data-go="splash">‹</button><h1>Log in</h1></div>
       <form id="app-login-form" class="app-form">
         <label>Email<input name="email" type="email" autocomplete="email" required></label>
         <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
         <p class="form-error" id="app-login-message"></p>
-        <button class="primary wide" type="submit">Log in →</button>
+        <button class="primary wide" type="submit">Log in</button>
       </form>
       <button class="secondary wide" id="show-signup">Create account</button>
     </section>
 
     <section class="screen" data-screen="signup">
-      <div class="screen-title"><button class="back" data-go="login">‹</button><div><p class="eyebrow">GET STARTED</p><h1>Create account</h1></div></div>
+      <div class="page-head"><button class="back round-icon" data-go="login">‹</button><h1>Create account</h1></div>
       <form id="app-signup-form" class="app-form">
         <label>Full name<input name="fullName" required></label>
         <label>Phone<input name="phone" type="tel" required></label>
         <label>Email<input name="email" type="email" required></label>
         <label>Password<input name="password" type="password" minlength="8" required></label>
         <p class="form-error" id="app-signup-message"></p>
-        <button class="primary wide" type="submit">Create account →</button>
+        <button class="primary wide" type="submit">Create account</button>
       </form>
     </section>
   </main>
 
-  <nav class="bottom-nav" aria-label="App navigation" hidden>
-    <button class="nav-item active" data-nav="home"><span class="ui-icon home-icon"></span><small>Home</small></button>
-    <button class="nav-item" data-nav="book"><span class="ui-icon plus-icon"></span><small>Book</small></button>
-    <button class="nav-item" data-nav="rides"><span class="ui-icon clock-icon"></span><small>Rides</small></button>
-    <button class="nav-item" data-nav="account"><span class="ui-icon user-icon"></span><small>Account</small></button>
+  <nav class="bottom-nav" hidden>
+    <button class="nav-item active" data-nav="home"><span class="icon icon-home"></span><small>Home</small></button>
+    <button class="nav-item" data-nav="activity"><span class="icon icon-receipt"></span><small>Activity</small></button>
+    <button class="nav-item" data-nav="account"><span class="icon icon-user"></span><small>Account</small></button>
   </nav>
 </div>
 <script src="app-test.js"></script>
