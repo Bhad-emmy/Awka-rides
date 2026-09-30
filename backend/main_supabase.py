@@ -1264,7 +1264,8 @@ async def customer_google_login(credentials: CustomerGoogleLogin, response: Resp
                 headers={                    "apikey": service_key,
                     "Authorization": f"Bearer {credentials.accessToken}",
                 },
-            )    except httpx.HTTPError as exc:
+            )
+    except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Unable to verify Google sign-in.") from exc
 
     if auth_response.is_error:
