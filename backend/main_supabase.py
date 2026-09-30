@@ -1517,7 +1517,8 @@ async def paystack_webhook(request: Request):
     if not reference or not ride_reference:
         return {"received": True}
 
-    record = await find_ride_by_reference(ride_reference)    fare = record.get("fare")
+    record = await find_ride_by_reference(ride_reference)
+    fare = record.get("fare")
     if not fare:
         raise HTTPException(status_code=409, detail="Ride fare is unavailable.")
 
