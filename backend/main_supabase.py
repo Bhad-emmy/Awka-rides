@@ -440,26 +440,70 @@ def require_dispatcher_session(
     return username
 
 
-def customer_session_secret():
-    secret = os.getenv("CUSTOMER_SESSION_SECRET")
-    if not secret:
-        raise HTTPException(
-            status_code=500,
-            detail="Customer authentication is not configured on the server.",
-        )
-    return secret
+def hash_customer_session_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def require_customer_session(
+async def create_customer_session(customer_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    token_hash = hash_customer_session_token(token)
+    await supabase_request(
+        "POST",
+        SUPABASE_TABLE_CUSTOMER_SESSIONS,
+        json_body={
+            "customer_id": str(customer_id),
+            "token_hash": token_hash,
+            "expires_at": datetime.fromtimestamp(
+                time.time() + CUSTOMER_SESSION_TTL,
+                tz=timezone.utc,
+            ).isoformat(),
+        },
+        action_description="customer session creation",
+    )
+    return token
+
+
+async def revoke_customer_session(token: str | None):
+    if not token:
+        return
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_CUSTOMER_SESSIONS,
+        params={
+            "token_hash": f"eq.{hash_customer_session_token(token)}",
+            "revoked_at": "is.null",
+        },
+        json_body={"revoked_at": datetime.now(timezone.utc).isoformat()},
+        action_description="customer session revocation",
+    )
+
+
+async def require_customer_session(
     session_cookie: str | None = Cookie(
         default=None,
         alias=CUSTOMER_SESSION_COOKIE,
     ),
 ):
-    customer_id = session_username(session_cookie, customer_session_secret())
-    if not customer_id:
+    if not session_cookie:
         raise HTTPException(status_code=401, detail="Customer login required.")
-    return customer_id
+
+    token_hash = hash_customer_session_token(session_cookie)
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_CUSTOMER_SESSIONS,
+        params={
+            "select": "customer_id,expires_at",
+            "token_hash": f"eq.{token_hash}",
+            "revoked_at": "is.null",
+            "expires_at": f"gt.{datetime.now(timezone.utc).isoformat()}",
+            "limit": "1",
+        },
+        action_description="customer session validation",
+    )
+    if not rows:
+        raise HTTPException(status_code=401, detail="Customer login required.")
+
+    return str(rows[0]["customer_id"])
 
 
 async def get_customer_ride(reference: str, customer_id: str) -> dict:
@@ -993,7 +1037,7 @@ async def customer_signup(credentials: CustomerSignup, response: Response, reque
 
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
-        value=create_session(str(customer["id"]), customer_session_secret(), CUSTOMER_SESSION_TTL),
+        value=await create_customer_session(str(customer["id"])),
         max_age=CUSTOMER_SESSION_TTL,
         httponly=True,        secure=True,
         samesite="lax",
@@ -1021,7 +1065,7 @@ async def customer_login(credentials: CustomerLogin, response: Response, request
 
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
-        value=create_session(str(customer["id"]), customer_session_secret(), CUSTOMER_SESSION_TTL),
+        value=create_session(str(customer["id"]), CUSTOMER_SESSION_TTL),
         max_age=CUSTOMER_SESSION_TTL,
         httponly=True,
         secure=True,
@@ -1041,7 +1085,14 @@ async def customer_login(credentials: CustomerLogin, response: Response, request
 
 
 @app.post("/api/customer/auth/logout")
-async def customer_logout(response: Response):
+async def customer_logout(
+    response: Response,
+    session_cookie: str | None = Cookie(
+        default=None,
+        alias=CUSTOMER_SESSION_COOKIE,
+    ),
+):
+    await revoke_customer_session(session_cookie)
     response.delete_cookie(
         key=CUSTOMER_SESSION_COOKIE,
         httponly=True,
