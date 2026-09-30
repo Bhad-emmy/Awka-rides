@@ -915,9 +915,10 @@ async def customer_profile_update(profile: CustomerProfileUpdate, customer_id: s
     if not full_name:
         raise HTTPException(status_code=422, detail="Full name is required.")
     if phone != current_phone:
-        password_hash = customer.get("password_hash")
+        auth_customer = await find_customer_by_email(str(customer.get("email") or ""))
+        password_hash = auth_customer.get("password_hash") if auth_customer else None
         if password_hash:
-            if not profile.reauth or not verify_password(profile.currentPassword, password_hash):
+            if not profile.reauth or not verify_password(profile.reauth, password_hash):
                 raise HTTPException(status_code=403, detail="Re-authentication is required before changing your phone number.")
         else:
             raise HTTPException(status_code=403, detail="Google accounts must re-authenticate with Google before changing the phone number.")
