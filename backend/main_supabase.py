@@ -30,23 +30,28 @@ app = FastAPI(title="Awka Rides API")
 # Authentication rate limiting. V1 uses per-instance memory; configure via env vars.
 AUTH_RATE_LIMIT_MAX = int(os.getenv("AUTH_RATE_LIMIT_MAX", "5"))
 AUTH_RATE_LIMIT_WINDOW = int(os.getenv("AUTH_RATE_LIMIT_WINDOW", "900"))
-_auth_attempts = defaultdict(deque)
+SIGNUP_RATE_LIMIT_MAX = int(os.getenv("SIGNUP_RATE_LIMIT_MAX", "5"))
+RIDE_RATE_LIMIT_MAX = int(os.getenv("RIDE_RATE_LIMIT_MAX", "5"))
+PAYMENT_RATE_LIMIT_MAX = int(os.getenv("PAYMENT_RATE_LIMIT_MAX", "5"))
+ACTION_RATE_LIMIT_WINDOW = int(os.getenv("ACTION_RATE_LIMIT_WINDOW", "900"))
+_rate_limit_buckets = defaultdict(deque)
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    return forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+
+def enforce_rate_limit(key: str, maximum: int, window: int, detail: str):
+    now = time.monotonic()
+    bucket = _rate_limit_buckets[key]
+    while bucket and now - bucket[0] >= window:
+        bucket.popleft()
+    if len(bucket) >= maximum:
+        retry_after = max(1, int(window - (now - bucket[0])))
+        raise HTTPException(status_code=429, detail=detail, headers={"Retry-After": str(retry_after)})
+    bucket.append(now)
 
 def enforce_auth_rate_limit(request: Request):
-    forwarded = request.headers.get("x-forwarded-for", "")
-    client_ip = forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
-    now = time.monotonic()
-    bucket = _auth_attempts[client_ip]
-    while bucket and now - bucket[0] >= AUTH_RATE_LIMIT_WINDOW:
-        bucket.popleft()
-    if len(bucket) >= AUTH_RATE_LIMIT_MAX:
-        retry_after = max(1, int(AUTH_RATE_LIMIT_WINDOW - (now - bucket[0])))
-        raise HTTPException(
-            status_code=429,
-            detail="Too many authentication attempts. Please try again later.",
-            headers={"Retry-After": str(retry_after)},
-        )
-    bucket.append(now)
+    enforce_rate_limit("auth:" + _client_ip(request), AUTH_RATE_LIMIT_MAX, AUTH_RATE_LIMIT_WINDOW, "Too many authentication attempts. Please try again later.")
 
 
 
@@ -151,6 +156,7 @@ class CustomerGoogleLogin(BaseModel):
 class CustomerProfileUpdate(BaseModel):
     fullName: str = Field(min_length=2, max_length=120)
     phone: str = Field(min_length=7, max_length=30)
+    currentPassword: str = Field(default="", max_length=128)
 
 
 class PaystackInitialize(BaseModel):
@@ -170,7 +176,7 @@ RideListStatus = Literal[
 DISPATCHER_SESSION_COOKIE = "awka_dispatcher_session"
 DISPATCHER_SESSION_TTL = 8 * 60 * 60
 CUSTOMER_SESSION_COOKIE = "oka_customer_session"
-CUSTOMER_SESSION_TTL = 30 * 24 * 60 * 60
+CUSTOMER_SESSION_TTL = 14 * 24 * 60 * 60
 PASSWORD_HASH_PREFIX = "pbkdf2_sha256"
 
 
@@ -433,7 +439,7 @@ def require_dispatcher_session(
 
 
 def customer_session_secret():
-    secret = os.getenv("CUSTOMER_SESSION_SECRET") or os.getenv("DISPATCHER_SESSION_SECRET")
+    secret = os.getenv("CUSTOMER_SESSION_SECRET")
     if not secret:
         raise HTTPException(
             status_code=500,
@@ -818,9 +824,12 @@ async def dispatcher_logout(response: Response):
 
 @app.post("/api/rides", status_code=201)
 async def create_ride(
+    request: Request,
     ride: RideRequest,
     customer_id: str = Depends(require_customer_session),
 ):
+    enforce_rate_limit("ride:" + str(customer_id), RIDE_RATE_LIMIT_MAX, ACTION_RATE_LIMIT_WINDOW, "Too many ride requests. Please try again later.")
+
     try:
         passengers = str(int(ride.passengers))
     except ValueError as exc:
@@ -883,19 +892,6 @@ async def create_ride(
     }
 
 
-@app.get("/api/rides/public/{reference}")
-async def public_ride_status(reference: str = Path(min_length=1)):
-    record = await find_ride_by_reference(reference)
-    return {
-        "reference": record.get("reference"),
-        "status": record.get("status"),
-        "fare": record.get("fare"),
-        "fareConfirmed": record.get("fare_confirmed", False),
-        "paymentStatus": record.get("payment_status"),
-        "driverAssigned": record.get("status") in {"DRIVER ASSIGNED", "PAID", "PICKED UP", "COMPLETED"},
-    }
-
-
 @app.get("/api/customer/auth/session")
 async def customer_session(customer_id: str = Depends(require_customer_session)):
     customer = await get_customer_record(customer_id)
@@ -915,24 +911,23 @@ async def customer_profile_update(profile: CustomerProfileUpdate, customer_id: s
     customer = await get_customer_record(customer_id)
     phone = profile.phone.strip()
     full_name = profile.fullName.strip()
-
+    current_phone = str(customer.get("phone") or "").strip()
     if not full_name:
         raise HTTPException(status_code=422, detail="Full name is required.")
+    if phone != current_phone:
+        password_hash = customer.get("password_hash")
+        if password_hash:
+            if not profile.currentPassword or not verify_password(profile.currentPassword, password_hash):
+                raise HTTPException(status_code=403, detail="Re-authentication is required before changing your phone number.")
+        else:
+            raise HTTPException(status_code=403, detail="Google accounts must re-authenticate with Google before changing the phone number.")
     existing = await find_customer_by_phone(phone)
     if existing and str(existing.get("id")) != str(customer_id):
         raise HTTPException(status_code=409, detail="That phone number is already linked to another account.")
-
-    rows = await supabase_request(
-        "PATCH",
-        SUPABASE_TABLE_CUSTOMERS,
-        params={"id": f"eq.{customer_id}"},
-        json_body={"full_name": full_name, "phone": phone},
-        action_description="customer profile update",
-    )
+    rows = await supabase_request("PATCH", SUPABASE_TABLE_CUSTOMERS, params={"id": f"eq.{customer_id}"}, json_body={"full_name": full_name, "phone": phone}, action_description="customer profile update")
     updated = rows[0] if rows else None
     if not updated:
         raise HTTPException(status_code=502, detail="Profile could not be updated.")
-
     return {
         "authenticated": True,
         "customer": {
@@ -945,7 +940,8 @@ async def customer_profile_update(profile: CustomerProfileUpdate, customer_id: s
 
 
 @app.post("/api/customer/auth/signup", status_code=201)
-async def customer_signup(credentials: CustomerSignup, response: Response):
+async def customer_signup(credentials: CustomerSignup, response: Response, request: Request):
+    enforce_rate_limit("signup:" + _client_ip(request), SIGNUP_RATE_LIMIT_MAX, ACTION_RATE_LIMIT_WINDOW, "Too many account creation attempts. Please try again later.")
     email = credentials.email.strip().lower()
     phone = credentials.phone.strip()
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
@@ -1145,9 +1141,14 @@ async def customer_ride(
 
 
 @app.post("/api/payments/paystack/initialize")
-async def initialize_paystack_payment(payment: PaystackInitialize):
+async def initialize_paystack_payment(
+    request: Request,
+    payment: PaystackInitialize,
+    customer_id: str = Depends(require_customer_session),
+):
+    enforce_rate_limit("payment:" + str(customer_id), PAYMENT_RATE_LIMIT_MAX, ACTION_RATE_LIMIT_WINDOW, "Too many payment attempts. Please try again later.")
     secret = paystack_secret()
-    record = await find_ride_by_reference(payment.reference)
+    record = await get_customer_ride(payment.reference, customer_id)
 
     if (
         record.get("status") != "DRIVER ASSIGNED"
@@ -1178,7 +1179,7 @@ async def initialize_paystack_payment(payment: PaystackInitialize):
     )
 
     payload = {
-        "email": payment.email.strip(),
+        "email": str(record.get("email") or payment.email).strip(),
         "amount": str(amount_kobo),
         "currency": "NGN",
         "reference": safe_reference,
