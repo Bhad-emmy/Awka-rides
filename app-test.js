@@ -13,12 +13,8 @@ const SUPABASE_URL="https://baoqyhhyenimfhkrwspn.supabase.co";const SUPPORT_PHON
 }
 
 async function loadSession(){try{const data=await api("/customer/auth/session");currentSession=data?.customer||null;if(data?.csrfToken)csrfToken=data.csrfToken;else if(!currentSession)csrfToken=null}catch{currentSession=null;csrfToken=null}renderAccount();return currentSession}document.addEventListener("click",e=>{if(e.target.closest("#app-login-form,#app-signup-form"))return;const n=e.target.closest("[data-nav]");if(n)return go(n.dataset.nav);const promo=e.target.closest("#promo-card");if(promo){e.preventDefault();e.stopPropagation();return}const brand=e.target.closest(".home-brand");if(brand){e.preventDefault();e.stopPropagation();return go("home")}const b=e.target.closest("[data-go]");if(b)return go(b.dataset.go);if(e.target.closest("#home-account"))return go("account");if(e.target.closest("#splash-login"))return go("login");if(e.target.closest("#splash-signup"))return go("signup");if(e.target.closest("#continue-session"))return go("home");if(e.target.closest("#show-signup"))return go("signup");if(e.target.closest("#account-auth-action"))return go("login");if(e.target.closest("#call-dispatch"))window.location.href="tel:"+encodeURIComponent(SUPPORT_PHONE);if(e.target.closest("#support-action"))window.location.href="tel:"+encodeURIComponent(SUPPORT_PHONE)});let loginSubmitArmed=false;
-document.querySelector("#app-login-form")?.querySelector('button[type="submit"]')?.addEventListener("click",()=>{loginSubmitArmed=true});
-document.querySelector("#app-login-form")?.addEventListener("keydown",e=>{if(e.key==="Enter")e.preventDefault()});
 document.querySelector("#app-login-form")?.addEventListener("submit",async e=>{
   e.preventDefault();
-  if(!loginSubmitArmed)return;
-  loginSubmitArmed=false;
   const m=document.querySelector("#app-login-message");
   m.textContent="Signing in...";
   try{
