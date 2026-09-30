@@ -156,7 +156,7 @@ class CustomerGoogleLogin(BaseModel):
 class CustomerProfileUpdate(BaseModel):
     fullName: str = Field(min_length=2, max_length=120)
     phone: str = Field(min_length=7, max_length=30)
-    currentPassword: str = Field(default="", max_length=128)
+    reauth: str = Field(default="", max_length=128)
 
 
 class PaystackInitialize(BaseModel):
@@ -917,7 +917,7 @@ async def customer_profile_update(profile: CustomerProfileUpdate, customer_id: s
     if phone != current_phone:
         password_hash = customer.get("password_hash")
         if password_hash:
-            if not profile.currentPassword or not verify_password(profile.currentPassword, password_hash):
+            if not profile.reauth or not verify_password(profile.currentPassword, password_hash):
                 raise HTTPException(status_code=403, detail="Re-authentication is required before changing your phone number.")
         else:
             raise HTTPException(status_code=403, detail="Google accounts must re-authenticate with Google before changing the phone number.")
