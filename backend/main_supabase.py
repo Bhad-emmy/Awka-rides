@@ -13,7 +13,7 @@ from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Path, Query, Request, Response
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -73,9 +73,92 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=frontend_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "X-CSRF-Token"],
 )
+
+
+SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
+CSRF_EXEMPT_PATHS = {
+    "/api/auth/login",
+    "/api/customer/auth/login",
+    "/api/customer/auth/signup",
+    "/api/customer/auth/google",
+    "/api/payments/paystack/webhook",
+}
+
+
+def request_origin_is_allowed(request: Request) -> bool:
+    origin = request.headers.get("origin")
+    if origin:
+        return origin in frontend_origins
+    referer = request.headers.get("referer")
+    if referer:
+        from urllib.parse import urlparse
+        parsed = urlparse(referer)
+        return f"{parsed.scheme}://{parsed.netloc}" in frontend_origins
+    return False
+
+
+def hash_csrf_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def dispatcher_csrf_token(session_cookie: str, session_secret: str) -> str:
+    return hmac.new(session_secret.encode("utf-8"), session_cookie.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+async def validate_customer_csrf(session_cookie: str, supplied_token: str | None):
+    if not supplied_token:
+        raise HTTPException(status_code=403, detail="CSRF token required.")
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_CUSTOMER_SESSIONS,
+        params={
+            "select": "csrf_token_hash",
+            "token_hash": f"eq.{hash_customer_session_token(session_cookie)}",
+            "revoked_at": "is.null",
+            "expires_at": f"gt.{datetime.now(timezone.utc).isoformat()}",
+            "limit": "1",
+        },
+        action_description="customer CSRF validation",
+    )
+    if not rows or not rows[0].get("csrf_token_hash"):
+        raise HTTPException(status_code=403, detail="CSRF token required.")
+    if not hmac.compare_digest(rows[0]["csrf_token_hash"], hash_csrf_token(supplied_token)):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token.")
+
+
+@app.middleware("http")
+async def csrf_protection_middleware(request: Request, call_next):
+    if request.method.upper() in SAFE_HTTP_METHODS or not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    if request.url.path == "/api/payments/paystack/webhook":
+        return await call_next(request)
+    if not request_origin_is_allowed(request):
+        raise HTTPException(status_code=403, detail="Untrusted request origin.")
+    if request.url.path in CSRF_EXEMPT_PATHS:
+        return await call_next(request)
+
+    customer_cookie = request.cookies.get(CUSTOMER_SESSION_COOKIE)
+    dispatcher_cookie = request.cookies.get(DISPATCHER_SESSION_COOKIE)
+    csrf_header = request.headers.get("X-CSRF-Token")
+
+    if customer_cookie:
+        await validate_customer_csrf(customer_cookie, csrf_header)
+    elif dispatcher_cookie:
+        username, _, session_secret = dispatcher_settings()
+        if session_username(dispatcher_cookie, session_secret) != username:
+            raise HTTPException(status_code=401, detail="Dispatcher authentication required.")
+        expected = dispatcher_csrf_token(dispatcher_cookie, session_secret)
+        if not csrf_header or not hmac.compare_digest(expected, csrf_header):
+            raise HTTPException(status_code=403, detail="Invalid CSRF token.")
+
+    return await call_next(request)
 
 
 class RideRequest(BaseModel):
@@ -487,23 +570,21 @@ def hash_customer_session_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-async def create_customer_session(customer_id: str) -> str:
+async def create_customer_session(customer_id: str) -> tuple[str, str]:
     token = secrets.token_urlsafe(32)
-    token_hash = hash_customer_session_token(token)
+    csrf_token = create_csrf_token()
     await supabase_request(
         "POST",
         SUPABASE_TABLE_CUSTOMER_SESSIONS,
         json_body={
             "customer_id": str(customer_id),
-            "token_hash": token_hash,
-            "expires_at": datetime.fromtimestamp(
-                time.time() + CUSTOMER_SESSION_TTL,
-                tz=timezone.utc,
-            ).isoformat(),
+            "token_hash": hash_customer_session_token(token),
+            "csrf_token_hash": hash_csrf_token(csrf_token),
+            "expires_at": datetime.fromtimestamp(time.time() + CUSTOMER_SESSION_TTL, tz=timezone.utc).isoformat(),
         },
         action_description="customer session creation",
     )
-    return token
+    return token, csrf_token
 
 
 async def revoke_customer_session(token: str | None):
@@ -907,10 +988,12 @@ async def dispatcher_login(credentials: DispatcherLogin, response: Response, req
 
 
 @app.get("/api/auth/session")
-async def dispatcher_session(
-    _: str = Depends(require_dispatcher_session),
-):
-    return {"authenticated": True}
+async def dispatcher_session(request: Request):
+    session_cookie = request.cookies.get(DISPATCHER_SESSION_COOKIE)
+    username, _, session_secret = dispatcher_settings()
+    if not session_cookie or session_username(session_cookie, session_secret) != username:
+        raise HTTPException(status_code=401, detail="Dispatcher authentication required.")
+    return {"authenticated": True, "csrfToken": dispatcher_csrf_token(session_cookie, session_secret)}
 
 
 @app.post("/api/auth/logout")
@@ -996,9 +1079,36 @@ async def create_ride(
 
 
 @app.get("/api/customer/auth/session")
-async def customer_session(customer_id: str = Depends(require_customer_session)):
+async def customer_session(request: Request, customer_id: str = Depends(require_customer_session)):
     await enforce_shared_rate_limit("customer:" + str(customer_id) + ":session-check", 120, 60, "Too many requests. Please try again later.")
     customer = await get_customer_record(customer_id)
+    session_cookie = request.cookies.get(CUSTOMER_SESSION_COOKIE)
+    if not session_cookie:
+        raise HTTPException(status_code=401, detail="Customer login required.")
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_CUSTOMER_SESSIONS,
+        params={
+            "select": "id,csrf_token_hash",
+            "token_hash": f"eq.{hash_customer_session_token(session_cookie)}",
+            "revoked_at": "is.null",
+            "expires_at": f"gt.{datetime.now(timezone.utc).isoformat()}",
+            "limit": "1",
+        },
+        action_description="customer CSRF token lookup",
+    )
+    if not rows:
+        raise HTTPException(status_code=401, detail="Customer login required.")
+    if rows[0].get("csrf_token_hash"):
+        raise HTTPException(status_code=409, detail="Session security token unavailable. Please log in again.")
+    csrf_token = create_csrf_token()
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_CUSTOMER_SESSIONS,
+        params={"id": f"eq.{rows[0]['id']}"},
+        json_body={"csrf_token_hash": hash_csrf_token(csrf_token)},
+        action_description="customer CSRF token creation",
+    )
     return {
         "authenticated": True,
         "customer": {
@@ -1007,6 +1117,7 @@ async def customer_session(customer_id: str = Depends(require_customer_session))
             "phone": customer.get("phone"),
             "email": customer.get("email"),
         },
+        "csrfToken": csrf_token,
     }
 
 
@@ -1080,9 +1191,10 @@ async def customer_signup(credentials: CustomerSignup, response: Response, reque
     if not customer:
         raise HTTPException(status_code=502, detail="Customer account could not be created.")
 
+    session_token, csrf_token = await create_customer_session(str(customer["id"]))
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
-        value=await create_customer_session(str(customer["id"])),
+        value=session_token,
         max_age=CUSTOMER_SESSION_TTL,
         httponly=True,        secure=True,
         samesite="lax",
@@ -1097,6 +1209,7 @@ async def customer_signup(credentials: CustomerSignup, response: Response, reque
             "phone": customer.get("phone"),
             "email": customer.get("email"),
         },
+        "csrfToken": csrf_token,
     }
 
 
@@ -1109,9 +1222,10 @@ async def customer_login(credentials: CustomerLogin, response: Response, request
     if not customer or not verify_password(credentials.password, customer.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password.")
 
+    session_token, csrf_token = await create_customer_session(str(customer["id"]))
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
-        value=await create_customer_session(str(customer["id"])),
+        value=session_token,
         max_age=CUSTOMER_SESSION_TTL,
         httponly=True,
         secure=True,
@@ -1127,6 +1241,7 @@ async def customer_login(credentials: CustomerLogin, response: Response, request
             "phone": customer.get("phone"),
             "email": customer.get("email"),
         },
+        "csrfToken": csrf_token,
     }
 
 
@@ -1204,9 +1319,10 @@ async def customer_google_login(credentials: CustomerGoogleLogin, response: Resp
         if not customer:
             raise HTTPException(status_code=502, detail="Google customer account could not be created.")
 
+    session_token, csrf_token = await create_customer_session(str(customer["id"]))
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
-        value=await create_customer_session(str(customer["id"])),
+        value=session_token,
         max_age=CUSTOMER_SESSION_TTL,
         httponly=True,
         secure=True,
@@ -1221,6 +1337,7 @@ async def customer_google_login(credentials: CustomerGoogleLogin, response: Resp
             "phone": customer.get("phone"),
             "email": customer.get("email"),
         },
+        "csrfToken": csrf_token,
     }
 
 
