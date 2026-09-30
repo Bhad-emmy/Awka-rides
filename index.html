@@ -12,13 +12,13 @@
 <body>
 <div class="app-shell">
   <header class="app-header">
-    <div class="brand"><span class="brand-mark">↗</span><span>ỌKA-<b>RIDES</b></span></div>
-    <button class="icon-btn" id="account-btn" aria-label="Account">◉</button>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">➜</span><span>ỌKA-<b>RIDES</b></span></div>
+    <button class="icon-btn" id="account-btn" aria-label="Account"><span class="ui-icon user-icon"></span></button>
   </header>
 
   <main id="screen">
     <section class="screen active splash-screen" data-screen="splash">
-  <div class="splash-art"><img src="data:image/jpeg;base64,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" alt="Ọka-Rides"></div>
+  <div class="splash-art"><div class="splash-visual" aria-label="Ọka-Rides"><div class="road road-one"></div><div class="road road-two"></div><div class="keke"><span class="keke-roof"></span><span class="keke-body"></span><span class="keke-wheel left"></span><span class="keke-wheel right"></span><span class="keke-light"></span></div><div class="splash-badge">ỌKA-RIDES</div></div></div>
   <div class="splash-copy"><p class="eyebrow">AWKA • 24/7</p><h1>Move around Awka with confidence.</h1><p>Book a Keke, follow your ride and stay connected with our human dispatch team.</p></div>
   <div class="splash-actions">
     <button class="primary wide" id="splash-login">Log in</button>
@@ -35,14 +35,14 @@
         <p>Book a Keke across Awka in a few taps.</p>
       </div>
       <button class="location-card" id="start-booking">
-        <span class="pin">⌖</span>
+        <span class="pin ui-icon pin-icon"></span>
         <span><small>Pickup location</small><strong>Choose pickup point</strong></span>
         <span>›</span>
       </button>
       <div class="quick-actions">
-        <button id="quick-book"><span>＋</span>Book a ride</button>
-        <a href="tel:09064636239"><span>☎</span>Call dispatch</a>
-        <a href="https://wa.me/2349064636239" target="_blank" rel="noopener"><span>◌</span>WhatsApp</a>
+        <button id="quick-book"><span class="ui-icon plus-icon"></span>Book a ride</button>
+        <a href="tel:09064636239"><span class="ui-icon phone-icon"></span>Call dispatch</a>
+        <a href="https://wa.me/2349064636239" target="_blank" rel="noopener"><span class="ui-icon chat-icon"></span>WhatsApp</a>
       </div>
       <section class="home-card">
         <div><p class="eyebrow">Your rides</p><h2>Need a ride now?</h2><p>Request online and our human dispatcher will contact an available rider.</p></div>
@@ -52,7 +52,7 @@
     </section>
 
     <section class="screen" data-screen="book">
-      <div class="screen-title"><button class="back" data-go="home">‹</button><div><p class="eyebrow">NEW RIDE</p><h1>Book a ride</h1></div></div>
+      <div class="screen-title"><button class="back" data-go="home" aria-label="Back">‹</button><div><p class="eyebrow">NEW RIDE</p><h1>Book a ride</h1></div></div>
       <form id="app-booking-form" class="app-form">
         <label>Pickup<input name="pickup" placeholder="e.g. Aroma Junction" required></label>
         <label>Destination<input name="destination" placeholder="Where are you going?" required></label>
@@ -67,16 +67,16 @@
 
     <section class="screen" data-screen="rides">
       <div class="screen-title"><div><p class="eyebrow">ACTIVITY</p><h1>My rides</h1></div><button class="text-btn" id="refresh-rides">Refresh</button></div>
-      <div id="ride-list" class="ride-list"><div class="empty"><span>🛺</span><h2>No rides yet</h2><p>Your completed and active rides will appear here.</p><button class="secondary" data-go="book">Book a ride</button></div></div>
+      <div id="ride-list" class="ride-list"><div class="empty"><span class="ride-illustration" aria-hidden="true">🛺</span><h2>No rides yet</h2><p>Your completed and active rides will appear here.</p><button class="secondary" data-go="book">Book a ride</button></div></div>
     </section>
 
     <section class="screen" data-screen="account">
       <div class="screen-title"><div><p class="eyebrow">ACCOUNT</p><h1>My account</h1></div></div>
       <div class="profile"><div class="avatar">M</div><div><p class="account-loading" id="account-loading">Checking account…</p><h2 id="profile-name">Guest</h2><p id="profile-email">Sign in to manage your rides</p></div></div>
       <div class="settings-list">
-        <button id="account-auth-action" data-go-login hidden><span>⇥</span><div><b>Sign in / Create account</b><small>Save your ride history</small></div><i>›</i></button>
-        <a href="tel:09064636239"><span>☎</span><div><b>Call dispatch</b><small>09064636239</small></div><i>›</i></a>
-        <a href="https://wa.me/2349064636239" target="_blank" rel="noopener"><span>◌</span><div><b>WhatsApp</b><small>Chat with Ọka-Rides</small></div><i>›</i></a>
+        <button id="account-auth-action" data-go-login hidden><span class="ui-icon login-icon"></span><div><b>Sign in / Create account</b><small>Save your ride history</small></div><i>›</i></button>
+        <a href="tel:09064636239"><span class="ui-icon phone-icon"></span><div><b>Call dispatch</b><small>09064636239</small></div><i>›</i></a>
+        <a href="https://wa.me/2349064636239" target="_blank" rel="noopener"><span class="ui-icon chat-icon"></span><div><b>WhatsApp</b><small>Chat with Ọka-Rides</small></div><i>›</i></a>
       </div>
     </section>
 
@@ -105,10 +105,10 @@
   </main>
 
   <nav class="bottom-nav" aria-label="App navigation" hidden>
-    <button class="nav-item active" data-nav="home"><span>⌂</span><small>Home</small></button>
-    <button class="nav-item" data-nav="book"><span>＋</span><small>Book</small></button>
-    <button class="nav-item" data-nav="rides"><span>◷</span><small>Rides</small></button>
-    <button class="nav-item" data-nav="account"><span>◉</span><small>Account</small></button>
+    <button class="nav-item active" data-nav="home"><span class="ui-icon home-icon"></span><small>Home</small></button>
+    <button class="nav-item" data-nav="book"><span class="ui-icon plus-icon"></span><small>Book</small></button>
+    <button class="nav-item" data-nav="rides"><span class="ui-icon clock-icon"></span><small>Rides</small></button>
+    <button class="nav-item" data-nav="account"><span class="ui-icon user-icon"></span><small>Account</small></button>
   </nav>
 </div>
 <script src="app-test.js"></script>
