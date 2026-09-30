@@ -249,6 +249,49 @@ async def supabase_request(
         return []
 
 
+async def supabase_rpc(function_name: str, json_body: dict) -> list:
+    url, service_key = supabase_settings()
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"{url}/rest/v1/rpc/{function_name}",
+                headers=supabase_headers(service_key),
+                json=json_body,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Unable to reach the rate-limit service.") from exc
+
+    if response.is_error:
+        raise HTTPException(status_code=502, detail="Rate-limit service rejected the request.")
+
+    if not response.content:
+        return []
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Rate-limit service returned an invalid response.") from exc
+    return payload if isinstance(payload, list) else [payload]
+
+
+async def enforce_shared_rate_limit(key: str, maximum: int, window: int, detail: str):
+    rows = await supabase_rpc(
+        "oka_rides_check_rate_limit",
+        {
+            "p_rate_key": key,
+            "p_limit": maximum,
+            "p_window_seconds": window,
+        },
+    )
+    result = rows[0] if rows else {}
+    if not result.get("allowed", False):
+        retry_after = max(1, int(result.get("retry_after") or window))
+        raise HTTPException(
+            status_code=429,
+            detail=detail,
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
 async def get_ride_record(ride_id: str) -> dict:
     rows = await supabase_request(
         "GET",
@@ -839,7 +882,7 @@ async def health_check():
 
 @app.post("/api/auth/login")
 async def dispatcher_login(credentials: DispatcherLogin, response: Response, request: Request):
-    enforce_auth_rate_limit(request)
+    await enforce_shared_rate_limit("dispatcher-login:ip:" + _client_ip(request), 10, 10 * 60, "Too many authentication attempts. Please try again later.")
     username, password_hash, session_secret = dispatcher_settings()
     if (
         not hmac.compare_digest(credentials.username, username)
@@ -888,7 +931,7 @@ async def create_ride(
     ride: RideRequest,
     customer_id: str = Depends(require_customer_session),
 ):
-    enforce_rate_limit("ride:" + str(customer_id), RIDE_RATE_LIMIT_MAX, ACTION_RATE_LIMIT_WINDOW, "Too many ride requests. Please try again later.")
+    await enforce_shared_rate_limit("customer:" + str(customer_id) + ":ride-create", RIDE_RATE_LIMIT_MAX, ACTION_RATE_LIMIT_WINDOW, "Too many ride requests. Please try again later.")
 
     try:
         passengers = str(int(ride.passengers))
@@ -954,6 +997,7 @@ async def create_ride(
 
 @app.get("/api/customer/auth/session")
 async def customer_session(customer_id: str = Depends(require_customer_session)):
+    await enforce_shared_rate_limit("customer:" + str(customer_id) + ":session-check", 120, 60, "Too many requests. Please try again later.")
     customer = await get_customer_record(customer_id)
     return {
         "authenticated": True,
@@ -968,6 +1012,7 @@ async def customer_session(customer_id: str = Depends(require_customer_session))
 
 @app.patch("/api/customer/profile")
 async def customer_profile_update(profile: CustomerProfileUpdate, customer_id: str = Depends(require_customer_session)):
+    await enforce_shared_rate_limit("customer:" + str(customer_id) + ":profile-update", 10, ACTION_RATE_LIMIT_WINDOW, "Too many profile changes. Please try again later.")
     customer = await get_customer_record(customer_id)
     phone = profile.phone.strip()
     full_name = profile.fullName.strip()
@@ -1010,7 +1055,7 @@ async def customer_profile_update(profile: CustomerProfileUpdate, customer_id: s
 
 @app.post("/api/customer/auth/signup", status_code=201)
 async def customer_signup(credentials: CustomerSignup, response: Response, request: Request):
-    enforce_rate_limit("signup:" + _client_ip(request), SIGNUP_RATE_LIMIT_MAX, ACTION_RATE_LIMIT_WINDOW, "Too many account creation attempts. Please try again later.")
+    await enforce_shared_rate_limit("signup:ip:" + _client_ip(request), SIGNUP_RATE_LIMIT_MAX, 60 * 60, "Too many account creation attempts. Please try again later.")
     email = credentials.email.strip().lower()
     phone = credentials.phone.strip()
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
@@ -1057,8 +1102,9 @@ async def customer_signup(credentials: CustomerSignup, response: Response, reque
 
 @app.post("/api/customer/auth/login")
 async def customer_login(credentials: CustomerLogin, response: Response, request: Request):
-    enforce_auth_rate_limit(request)
     email = credentials.email.strip().lower()
+    await enforce_shared_rate_limit("customer-login:ip:" + _client_ip(request), 10, 10 * 60, "Too many authentication attempts. Please try again later.")
+    await enforce_shared_rate_limit("customer-login:account:" + email, 5, 15 * 60, "Too many authentication attempts. Please try again later.")
     customer = await find_customer_by_email(email)
     if not customer or not verify_password(credentials.password, customer.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password.")
@@ -1105,7 +1151,7 @@ async def customer_logout(
 
 @app.post("/api/customer/auth/google")
 async def customer_google_login(credentials: CustomerGoogleLogin, response: Response, request: Request):
-    enforce_auth_rate_limit(request)
+    await enforce_shared_rate_limit("customer-google-login:ip:" + _client_ip(request), 10, 10 * 60, "Too many authentication attempts. Please try again later.")
     url, service_key = supabase_settings()
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -1180,6 +1226,7 @@ async def customer_google_login(credentials: CustomerGoogleLogin, response: Resp
 
 @app.get("/api/customer/rides")
 async def customer_rides(customer_id: str = Depends(require_customer_session)):
+    await enforce_shared_rate_limit("customer:" + str(customer_id) + ":ride-history", 120, 60, "Too many requests. Please try again later.")
     rows = await supabase_request(
         "GET", SUPABASE_TABLE_RIDES,
         params={
@@ -1198,6 +1245,7 @@ async def customer_ride(
     reference: str = Path(min_length=1),
     customer_id: str = Depends(require_customer_session),
 ):
+    await enforce_shared_rate_limit("customer:" + str(customer_id) + ":ride-lookup", 120, 60, "Too many requests. Please try again later.")
     record = await get_customer_ride(reference, customer_id)
     status = record.get("status")
     response = {
@@ -1224,7 +1272,7 @@ async def initialize_paystack_payment(
     payment: PaystackInitialize,
     customer_id: str = Depends(require_customer_session),
 ):
-    enforce_rate_limit("payment:" + str(customer_id), PAYMENT_RATE_LIMIT_MAX, ACTION_RATE_LIMIT_WINDOW, "Too many payment attempts. Please try again later.")
+    await enforce_shared_rate_limit("customer:" + str(customer_id) + ":payment-init", PAYMENT_RATE_LIMIT_MAX, ACTION_RATE_LIMIT_WINDOW, "Too many payment attempts. Please try again later.")
     secret = paystack_secret()
     record = await get_customer_ride(payment.reference, customer_id)
 
