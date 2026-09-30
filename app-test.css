@@ -5,3 +5,5 @@ html:has(.splash-screen.active),body:has(.splash-screen.active){overflow:hidden!
 .promo-card .promo-logo{width:58px;height:58px;flex:0 0 58px;border-radius:18px;object-fit:cover;display:block}
 /* Promo card is informational only; never behave like a booking control. */
 #promo-card{pointer-events:none;cursor:default}.promo-card .promo-logo{pointer-events:none}
+/* Keep the Leaflet map in normal document flow so it can never cover Home modules. */
+.service-tiles,.where-card,.recent-places{position:relative;z-index:2}.oka-map{position:relative!important;z-index:0!important;isolation:isolate;clear:both;display:block;margin:28px 0 30px;transform:none!important}.oka-map .leaflet-pane,.oka-map .leaflet-top,.oka-map .leaflet-bottom{z-index:1!important}.oka-map .leaflet-control{z-index:2!important}
