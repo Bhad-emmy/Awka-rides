@@ -8,3 +8,24 @@ html:has(.splash-screen.active),body:has(.splash-screen.active){overflow:hidden!
 /* Keep the Leaflet map in normal document flow so it can never cover Home modules. */
 .service-tiles,.where-card,.recent-places{position:relative;z-index:2}.oka-map{position:relative!important;z-index:0!important;isolation:isolate;clear:both;display:block;margin:28px 0 30px;transform:none!important}.oka-map .leaflet-pane,.oka-map .leaflet-top,.oka-map .leaflet-bottom{z-index:1!important}.oka-map .leaflet-control{z-index:2!important}
 .ride-card{width:100%;border:0;border-bottom:1px solid #eceeee;background:#fff;text-align:left;cursor:pointer;color:var(--ink)}.ride-card:active{background:#f7faf8}.ride-detail{background:#fff;border:1px solid #e5e9e7;border-radius:22px;padding:18px;margin:0 0 20px;box-shadow:0 5px 20px rgba(0,0,0,.06)}.ride-detail-head{display:flex;justify-content:space-between;align-items:center}.ride-detail-head small,.ride-detail-grid small{display:block;color:var(--muted);font-size:12px}.ride-detail-head strong{display:block;font-size:15px;margin-top:3px}.ride-status-large{margin:16px 0;padding:12px 14px;border-radius:12px;background:#eaf6ef;color:var(--green-dark);font-weight:800;font-size:14px}.ride-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}.ride-detail-grid>div{background:#f7f8f8;border-radius:14px;padding:12px}.ride-detail-grid b{display:block;margin-top:5px}.driver-panel{border-top:1px solid #eceeee;padding-top:16px}.driver-panel-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700}.driver-panel h3{font-size:20px;margin:7px 0 4px}.driver-panel p{color:var(--muted);margin:0 0 12px}.driver-call{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 18px;border-radius:12px;background:var(--green);color:#fff;text-decoration:none;font-weight:700}.driver-muted{font-size:13px}.ride-detail-loading{color:var(--muted);padding:8px}.
+/* Activity detail polish */
+#ride-detail[hidden]{display:none!important}
+#ride-detail.ride-detail{display:block;background:#fff;border:1px solid #e4e9e6;border-radius:20px;padding:16px;margin:0 0 22px;box-shadow:0 4px 16px rgba(0,0,0,.05);overflow:hidden}
+.ride-detail-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important}
+.ride-detail-head>div{min-width:0}
+.ride-detail-head small{display:block!important;color:#7a8284!important;font-size:12px!important;margin:0 0 3px!important}
+.ride-detail-head strong{display:block!important;font-size:14px!important;font-weight:700!important;white-space:nowrap!important}
+.ride-detail-head .round-icon{flex:0 0 44px!important;width:44px!important;height:44px!important;margin:0!important}
+.ride-status-large{display:block!important;margin:14px 0!important;padding:10px 12px!important;border-radius:10px!important;background:#edf7f1!important;color:#18794e!important;font-size:13px!important;font-weight:800!important}
+.ride-detail-grid{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important;margin:0 0 14px!important}
+.ride-detail-grid>div{background:#f6f8f7!important;border-radius:12px!important;padding:10px!important}
+.ride-detail-grid small{font-size:11px!important}
+.ride-detail-grid b{font-size:14px!important}
+.driver-panel{border-top:1px solid #edf0ef!important;padding-top:14px!important}
+.driver-panel-title{font-size:11px!important;color:#7a8284!important;font-weight:800!important}
+.driver-panel h3{font-size:18px!important;margin:5px 0 3px!important}
+.driver-panel p{font-size:13px!important;line-height:1.4!important;margin:0 0 10px!important}
+.driver-call{min-height:42px!important;border-radius:11px!important;padding:0 16px!important}
+.ride-list .ride-card{appearance:none!important;-webkit-appearance:none!important;display:grid!important;grid-template-columns:62px minmax(0,1fr) auto!important;align-items:center!important;gap:15px!important;width:100%!important;min-height:98px!important;padding:18px 0!important;border:0!important;border-bottom:1px solid #eceeee!important;border-radius:0!important;background:#fff!important;color:var(--ink)!important;text-align:left!important;box-shadow:none!important}
+.ride-list .ride-card h3{margin:0!important;font-size:17px!important;font-weight:600!important}
+.ride-list .ride-card .fare{font-size:16px!important;white-space:nowrap!important}
