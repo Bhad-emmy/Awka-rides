@@ -148,6 +148,11 @@ class CustomerGoogleLogin(BaseModel):
     phone: str = Field(default="", max_length=30)
 
 
+class CustomerProfileUpdate(BaseModel):
+    fullName: str = Field(min_length=2, max_length=120)
+    phone: str = Field(min_length=7, max_length=30)
+
+
 class PaystackInitialize(BaseModel):
     reference: str = Field(min_length=1)
     email: str = Field(min_length=3)
@@ -901,6 +906,40 @@ async def customer_session(customer_id: str = Depends(require_customer_session))
             "fullName": customer.get("full_name"),
             "phone": customer.get("phone"),
             "email": customer.get("email"),
+        },
+    }
+
+
+@app.patch("/api/customer/profile")
+async def customer_profile_update(profile: CustomerProfileUpdate, customer_id: str = Depends(require_customer_session)):
+    customer = await get_customer_record(customer_id)
+    phone = profile.phone.strip()
+    full_name = profile.fullName.strip()
+
+    if not full_name:
+        raise HTTPException(status_code=422, detail="Full name is required.")
+    existing = await find_customer_by_phone(phone)
+    if existing and str(existing.get("id")) != str(customer_id):
+        raise HTTPException(status_code=409, detail="That phone number is already linked to another account.")
+
+    rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_CUSTOMERS,
+        params={"id": f"eq.{customer_id}"},
+        json_body={"full_name": full_name, "phone": phone},
+        action_description="customer profile update",
+    )
+    updated = rows[0] if rows else None
+    if not updated:
+        raise HTTPException(status_code=502, detail="Profile could not be updated.")
+
+    return {
+        "authenticated": True,
+        "customer": {
+            "id": updated.get("id", customer_id),
+            "fullName": updated.get("full_name", full_name),
+            "phone": updated.get("phone", phone),
+            "email": updated.get("email", customer.get("email")),
         },
     }
 
