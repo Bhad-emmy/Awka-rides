@@ -3,6 +3,8 @@ import base64
 import binascii
 import hashlib
 import hmac
+import time
+from collections import defaultdict, deque
 import json
 import secrets
 import time
@@ -24,6 +26,29 @@ SUPABASE_TABLE_CUSTOMERS = "oka_rides_customers"
 PAYSTACK_API_BASE = "https://api.paystack.co"
 
 app = FastAPI(title="Awka Rides API")
+
+# Authentication rate limiting. V1 uses per-instance memory; configure via env vars.
+AUTH_RATE_LIMIT_MAX = int(os.getenv("AUTH_RATE_LIMIT_MAX", "5"))
+AUTH_RATE_LIMIT_WINDOW = int(os.getenv("AUTH_RATE_LIMIT_WINDOW", "900"))
+_auth_attempts = defaultdict(deque)
+
+def enforce_auth_rate_limit(request: Request):
+    forwarded = request.headers.get("x-forwarded-for", "")
+    client_ip = forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    now = time.monotonic()
+    bucket = _auth_attempts[client_ip]
+    while bucket and now - bucket[0] >= AUTH_RATE_LIMIT_WINDOW:
+        bucket.popleft()
+    if len(bucket) >= AUTH_RATE_LIMIT_MAX:
+        retry_after = max(1, int(AUTH_RATE_LIMIT_WINDOW - (now - bucket[0])))
+        raise HTTPException(
+            status_code=429,
+            detail="Too many authentication attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    bucket.append(now)
+
+
 
 configured_frontend_origins = os.getenv("FRONTEND_ORIGIN")
 frontend_origins = (
@@ -742,7 +767,8 @@ async def health_check():
 
 
 @app.post("/api/auth/login")
-async def dispatcher_login(credentials: DispatcherLogin, response: Response):
+async def dispatcher_login(credentials: DispatcherLogin, response: Response, request: Request):
+    enforce_auth_rate_limit(request)
     username, password_hash, session_secret = dispatcher_settings()
     if (
         not hmac.compare_digest(credentials.username, username)
@@ -925,7 +951,8 @@ async def customer_signup(credentials: CustomerSignup, response: Response):
 
 
 @app.post("/api/customer/auth/login")
-async def customer_login(credentials: CustomerLogin, response: Response):
+async def customer_login(credentials: CustomerLogin, response: Response, request: Request):
+    enforce_auth_rate_limit(request)
     email = credentials.email.strip().lower()
     customer = await find_customer_by_email(email)
     if not customer or not verify_password(credentials.password, customer.get("password_hash", "")):
@@ -964,7 +991,8 @@ async def customer_logout(response: Response):
 
 
 @app.post("/api/customer/auth/google")
-async def customer_google_login(credentials: CustomerGoogleLogin, response: Response):
+async def customer_google_login(credentials: CustomerGoogleLogin, response: Response, request: Request):
+    enforce_auth_rate_limit(request)
     url, service_key = supabase_settings()
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
