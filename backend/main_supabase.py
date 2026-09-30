@@ -944,6 +944,14 @@ async def customer_profile_update(profile: CustomerProfileUpdate, customer_id: s
     updated = rows[0] if rows else None
     if not updated:
         raise HTTPException(status_code=502, detail="Profile could not be updated.")
+    await write_audit_log(
+        "customer",
+        customer_id,
+        "customer.profile_updated",
+        "customer",
+        customer_id,
+        {"phone_changed": phone != current_phone},
+    )
     return {
         "authenticated": True,
         "customer": {
@@ -990,6 +998,7 @@ async def customer_signup(credentials: CustomerSignup, response: Response, reque
         samesite="lax",
         path="/api",
     )
+    await write_audit_log("customer", customer.get("id"), "customer.account_created", "customer", customer.get("id"), {"method": "password"})
     return {
         "authenticated": True,
         "customer": {
@@ -1018,6 +1027,7 @@ async def customer_login(credentials: CustomerLogin, response: Response, request
         samesite="lax",
         path="/api",
     )
+    await write_audit_log("customer", customer.get("id"), "customer.login", "customer", customer.get("id"), {"method": "password"})
     return {
         "authenticated": True,
         "customer": {
@@ -1605,21 +1615,35 @@ async def assign_driver(
         "driver_plate_number": driver.get("plate_number"),
     }
 
-    await supabase_request(
-        "PATCH",
-        SUPABASE_TABLE_RIDES,
-        params={"id": f"eq.{ride_id}"},
-        json_body=fields,
-        action_description="ride assignment",
-    )
-
-    await supabase_request(
+    # Reserve the driver atomically: only one dispatcher can move an ONLINE driver to BUSY.
+    driver_rows = await supabase_request(
         "PATCH",
         SUPABASE_TABLE_DRIVERS,
-        params={"driver_id": f"eq.{driver_id}"},
+        params={"driver_id": f"eq.{driver_id}", "availability_status": "eq.ONLINE"},
         json_body={"availability_status": "BUSY"},
         action_description="driver availability update",
     )
+    if not driver_rows:
+        raise HTTPException(status_code=409, detail="Driver is no longer available for dispatch.")
+
+    # Assign only if the ride is still REQUESTED. If another dispatcher won the race,
+    # release the driver reservation.
+    ride_rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={"id": f"eq.{ride_id}", "status": "eq.REQUESTED"},
+        json_body=fields,
+        action_description="ride assignment",
+    )
+    if not ride_rows:
+        await supabase_request(
+            "PATCH",
+            SUPABASE_TABLE_DRIVERS,
+            params={"driver_id": f"eq.{driver_id}", "availability_status": "eq.BUSY"},
+            json_body={"availability_status": "ONLINE"},
+            action_description="driver reservation rollback",
+        )
+        raise HTTPException(status_code=409, detail="Ride was already dispatched or changed.")
 
     await supabase_request(
         "PATCH",
@@ -1729,13 +1753,15 @@ async def verify_payment(
             }
         )
 
-    await supabase_request(
+    payment_rows = await supabase_request(
         "PATCH",
         SUPABASE_TABLE_RIDES,
-        params={"id": f"eq.{ride_id}"},
+        params={"id": f"eq.{ride_id}", "status": "eq.DRIVER ASSIGNED"},
         json_body=fields,
         action_description="payment update",
     )
+    if not payment_rows:
+        raise HTTPException(status_code=409, detail="Ride payment state changed. Refresh and try again.")
 
     await write_audit_log("dispatcher", _, "ride.payment_updated", "ride", ride_id, {"payment_status": payment.paymentStatus, "payment_method": payment.paymentMethod})
     return {
@@ -1812,12 +1838,23 @@ async def update_ride_status(
             action_description=f"driver {counter_field} update",
         )
 
-    await supabase_request(
+    status_rows = await supabase_request(
         "PATCH",
         SUPABASE_TABLE_RIDES,
-        params={"id": f"eq.{ride_id}"},
+        params={"id": f"eq.{ride_id}", "status": f"eq.{current_status}"},
         json_body={"status": status_update.status},
         action_description="ride status update",
+    )
+    if not status_rows:
+        raise HTTPException(status_code=409, detail="Ride status changed. Refresh and try again.")
+
+    await write_audit_log(
+        "dispatcher",
+        _,
+        "ride.status_updated",
+        "ride",
+        ride_id,
+        {"from": current_status, "to": status_update.status},
     )
 
     return {
