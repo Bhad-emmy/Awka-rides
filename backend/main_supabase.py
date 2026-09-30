@@ -24,6 +24,7 @@ SUPABASE_TABLE_RIDES = "oka_rides_rides"
 SUPABASE_TABLE_DRIVERS = "oka_rides_drivers"
 SUPABASE_TABLE_CUSTOMERS = "oka_rides_customers"
 SUPABASE_TABLE_AUDIT_LOGS = "oka_rides_audit_logs"
+SUPABASE_TABLE_CUSTOMER_SESSIONS = "oka_rides_customer_sessions"
 PAYSTACK_API_BASE = "https://api.paystack.co"
 
 app = FastAPI(title="Awka Rides API")
