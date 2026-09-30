@@ -93,11 +93,24 @@
       </div>
 
       <div class="account-card">
+        <button id="profile-action" data-go="profile"><span class="row-icon icon-user"></span><span><b>Profile</b><small>Manage your name and phone number</small></span><span class="chevron">›</span></button>
         <button id="account-auth-action" data-go-login hidden><span class="row-icon icon-login"></span><span><b>Sign in / Create account</b><small>Save your ride history</small></span><span class="chevron">›</span></button>
         <button id="support-action" type="button"><span class="row-icon icon-help">?</span><span><b>Support</b><small>Talk to Ọka-Rides</small></span><span class="chevron">›</span></button>
       </div>
 
       <button class="logout-btn" id="logout-btn" hidden>Log out</button>
+    </section>
+
+    <section class="screen" data-screen="profile">
+      <div class="page-head"><button class="back round-icon" data-go="account">‹</button><h1>Profile</h1></div>
+      <form id="app-profile-form" class="app-form">
+        <label>Full name<input name="fullName" id="profile-full-name" autocomplete="name" required></label>
+        <label>Phone<input name="phone" id="profile-phone" type="tel" autocomplete="tel" required></label>
+        <label>Email<input name="email" id="profile-email-input" type="email" autocomplete="email" readonly></label>
+        <p class="profile-note">Your email is used for sign-in and cannot be changed here.</p>
+        <p class="form-error" id="app-profile-message"></p>
+        <button class="primary wide" type="submit">Save changes</button>
+      </form>
     </section>
 
     <section class="screen" data-screen="login">
