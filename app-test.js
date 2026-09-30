@@ -18,11 +18,20 @@ document.querySelector("#app-login-form")?.addEventListener("submit",async e=>{
   }catch(err){m.textContent=err.message}
 });
 document.querySelector("#app-signup-form")?.addEventListener("submit",async e=>{e.preventDefault();const m=document.querySelector("#app-signup-message");m.textContent="Creating account...";try{await api("/customer/auth/signup",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(e.currentTarget)))});await loadSession();go("home")}catch(err){m.textContent=err.message}});document.querySelector("#app-booking-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget;const m=document.querySelector("#app-booking-message"),v=Object.fromEntries(new FormData(form));m.textContent="Requesting your ride...";try{const s=currentSession||await loadSession();const payload={name:s?.full_name||s?.fullName||"",phone:v.phone,email:s?.email||"",pickup:v.pickup,destination:v.destination,pickupTiming:v.pickupTiming,passengers:String(v.passengers),notes:v.notes,vehicle:"Keke"};const data=await api("/rides",{method:"POST",body:JSON.stringify(payload)});m.textContent="Ride requested: "+(data.reference||"created");form.reset();setTimeout(()=>go("activity"),700)}catch(err){m.textContent=err.message}});function escapeHtml(v){return String(v??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
-async function openRide(reference){
+let ridePollTimer=null;
+let activeRideReference=null;
+let activeRideStatus=null;
+
+function stopRidePolling(){if(ridePollTimer){clearInterval(ridePollTimer);ridePollTimer=null}}
+function startRidePolling(reference){activeRideReference=reference;stopRidePolling();ridePollTimer=setInterval(async()=>{try{const r=await api("/customer/rides/"+encodeURIComponent(reference));activeRideStatus=r.status;if(["COMPLETED","CANCELLED"].includes(r.status)){stopRidePolling()}await openRide(reference,true)}catch{}} ,5000)}
+
+async function openRide(reference,silent=false){
   const detail=document.querySelector("#ride-detail");
   if(!detail)return;
   detail.hidden=false;
-  detail.innerHTML='<div class="ride-detail-loading">Loading ride details...</div>';
+  activeRideReference=reference;
+  if(!silent)startRidePolling(reference);
+  if(!silent)detail.innerHTML='<div class="ride-detail-loading">Loading ride details...</div>';
   try{
     const r=await api("/customer/rides/"+encodeURIComponent(reference));
     const assigned=!!r.driverAssigned;
