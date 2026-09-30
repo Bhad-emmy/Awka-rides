@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="awka-api-base" content="/api">
+<meta name="description" content="Sign in to Ọka-Rides and book safe, reliable Keke rides across Awka.">
+<title>Log In | Ọka-Rides</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<style>
+.login-page{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);background:#f8fafc}
+.login-brand{position:relative;display:flex;align-items:center;justify-content:center;padding:70px 8%;overflow:hidden;background:linear-gradient(145deg,#052e16,#14532d 55%,#166534);color:#fff}
+.login-brand:before,.login-brand:after{content:"";position:absolute;border:1px solid rgba(134,239,172,.18);border-radius:50%}
+.login-brand:before{width:560px;height:560px;right:-230px;top:-150px}.login-brand:after{width:360px;height:360px;left:-180px;bottom:-180px}
+.login-brand-content{position:relative;z-index:1;max-width:590px}.login-logo{display:inline-flex;align-items:center;gap:10px;margin-bottom:80px;color:#fff;font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;text-decoration:none}.login-logo .logo-mark{background:#22c55e}
+.login-eyebrow{display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;color:#bbf7d0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.login-eyebrow:before{content:"";width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 5px rgba(34,197,94,.14)}
+.login-brand h1{max-width:620px;margin-bottom:22px;font-family:'Space Grotesk',sans-serif;font-size:clamp(42px,5.5vw,72px);line-height:1.02;letter-spacing:-.055em}.login-brand h1 span{color:#4ade80}.login-brand-copy{max-width:520px;color:#d1fae5;font-size:17px;line-height:1.7}
+.login-features{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:42px}.login-feature{padding:15px;border:1px solid rgba(255,255,255,.12);border-radius:13px;background:rgba(255,255,255,.06)}.login-feature strong{display:block;margin-bottom:4px;font-family:'Space Grotesk',sans-serif;font-size:13px}.login-feature span{color:#bbf7d0;font-size:11px}
+.login-panel{display:flex;align-items:center;justify-content:center;padding:40px 7%;background:#fff}.login-card{width:min(430px,100%)}.login-card .eyebrow{margin-bottom:10px}.login-card h2{margin-bottom:10px;font-family:'Space Grotesk',sans-serif;font-size:38px;line-height:1.08;letter-spacing:-.04em}.login-card-intro{margin-bottom:28px;color:#64748b;font-size:14px}
+.login-tabs{display:grid;grid-template-columns:1fr 1fr;margin-bottom:24px;padding:4px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}.login-tab{border:0;border-radius:9px;padding:11px;background:transparent;color:#64748b;font-weight:700;cursor:pointer}.login-tab.active{background:#fff;color:#111827;box-shadow:0 2px 8px rgba(15,23,42,.08)}
+.login-form{display:grid;gap:16px}.login-form label{display:grid;gap:7px;color:#334155;font-size:12px;font-weight:700}.login-form input{width:100%;padding:13px 14px;border:1px solid #cbd5e1;border-radius:10px;outline:0;background:#fff;color:#111827;font-size:14px}.login-form input:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.1)}.login-form .button{width:100%;margin-top:4px}
+.login-message{min-height:20px;margin-bottom:12px;color:#166534;font-size:12px;font-weight:600}.login-message.error{color:#b91c1c}.login-helper{margin-top:22px;color:#94a3b8;text-align:center;font-size:11px;line-height:1.6}.login-footer{margin-top:42px;padding-top:18px;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:11px;text-align:center}
+@media(max-width:850px){.login-page{grid-template-columns:1fr}.login-brand{min-height:390px;padding:42px 7%}.login-logo{margin-bottom:45px}.login-brand h1{font-size:46px}.login-features{margin-top:28px}.login-panel{padding:42px 7% 60px}}
+@media(max-width:480px){.login-brand{min-height:330px}.login-brand h1{font-size:39px}.login-brand-copy{font-size:14px}.login-features{grid-template-columns:1fr}.login-feature:nth-child(3){display:none}.login-panel{padding:35px 20px 50px}.login-card h2{font-size:32px}}
+</style>
+</head>
+<body>
+<main class="login-page">
+<section class="login-brand"><div class="login-brand-content">
+<a class="login-logo" href="index.html" aria-label="Ọka-Rides"><span class="logo-mark">↗</span><span>ỌKA-<strong>RIDES</strong></span></a>
+<p class="login-eyebrow">Awka's local ride platform</p>
+<h1>Move around Awka with <span>confidence.</span></h1>
+<p class="login-brand-copy">Sign in to manage your rides, track your bookings, and request reliable Keke transportation with Ọka-Rides.</p>
+<div class="login-features"><div class="login-feature"><strong>24/7 Service</strong><span>Day or night</span></div><div class="login-feature"><strong>Local Dispatch</strong><span>Built for Awka</span></div><div class="login-feature"><strong>Ride History</strong><span>All in one place</span></div></div>
+</div></section>
+<section class="login-panel"><div class="login-card">
+<p class="eyebrow">Welcome back</p><h2 id="login-heading">Sign in to Ọka-Rides</h2><p class="login-card-intro" id="login-intro">Access your account before requesting a ride.</p>
+<div class="login-tabs" role="tablist" aria-label="Account access"><button class="login-tab active" id="login-tab" type="button">Log In</button><button class="login-tab" id="signup-tab" type="button">Create Account</button></div>
+<p class="login-message" id="login-message" role="status" aria-live="polite"></p>
+<form class="login-form" id="login-form"><label>Email Address<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><button class="button button-primary" type="submit">Log In <span>→</span></button></form>
+<form class="login-form" id="signup-form" hidden><label>Full Name<input type="text" name="fullName" autocomplete="name" required></label><label>Phone Number<input type="tel" name="phone" autocomplete="tel" required></label><label>Email Address<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="new-password" minlength="8" required></label><button class="button button-primary" type="submit">Create Account <span>→</span></button></form>
+<p class="login-helper">Your account is required before booking a ride. Your personal details are used to manage your bookings.</p>
+<div class="login-footer">© 2026 Ọka-Rides · Serving Awka, Anambra</div>
+</div></section>
+</main>
+<script src="script.js"></script>
+</body>
+</html>
