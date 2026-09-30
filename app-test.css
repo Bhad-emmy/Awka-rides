@@ -29,3 +29,4 @@ html:has(.splash-screen.active),body:has(.splash-screen.active){overflow:hidden!
 .ride-list .ride-card{appearance:none!important;-webkit-appearance:none!important;display:grid!important;grid-template-columns:62px minmax(0,1fr) auto!important;align-items:center!important;gap:15px!important;width:100%!important;min-height:98px!important;padding:18px 0!important;border:0!important;border-bottom:1px solid #eceeee!important;border-radius:0!important;background:#fff!important;color:var(--ink)!important;text-align:left!important;box-shadow:none!important}
 .ride-list .ride-card h3{margin:0!important;font-size:17px!important;font-weight:600!important}
 .ride-list .ride-card .fare{font-size:16px!important;white-space:nowrap!important}
+.profile-note{color:var(--muted);font-size:12px;line-height:1.45;margin-top:-4px}.app-form input[readonly]{background:#f4f5f5;color:#6d7477}
