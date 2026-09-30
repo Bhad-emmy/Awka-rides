@@ -23,6 +23,7 @@ load_dotenv()
 SUPABASE_TABLE_RIDES = "oka_rides_rides"
 SUPABASE_TABLE_DRIVERS = "oka_rides_drivers"
 SUPABASE_TABLE_CUSTOMERS = "oka_rides_customers"
+SUPABASE_TABLE_AUDIT_LOGS = "oka_rides_audit_logs"
 PAYSTACK_API_BASE = "https://api.paystack.co"
 
 app = FastAPI(title="Awka Rides API")
@@ -564,6 +565,20 @@ async def notify_driver_of_assignment(ride: dict, driver: dict):
         "Check dispatcher for details."
     )
     return await send_driver_sms(driver.get("phone", ""), message)
+
+
+async def write_audit_log(actor_type: str, actor_id: str, action: str, entity_type: str, entity_id: str | None = None, metadata: dict | None = None):
+    try:
+        await supabase_request("POST", SUPABASE_TABLE_AUDIT_LOGS, json_body={
+            "actor_type": actor_type,
+            "actor_id": str(actor_id),
+            "action": action,
+            "entity_type": entity_type,
+            "entity_id": str(entity_id) if entity_id is not None else None,
+            "metadata": metadata or {},
+        }, action_description="audit log write")
+    except HTTPException:
+        pass
 
 
 def ride_representation(record: dict) -> dict:
@@ -1463,6 +1478,7 @@ async def update_driver(
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Driver not found.")
+    await write_audit_log("dispatcher", _, "driver.updated", "driver", driver_id, {"fields": sorted(fields.keys())})
     return {"message": "Driver updated", "driverId": driver_id}
 
 
@@ -1619,6 +1635,7 @@ async def assign_driver(
     ride_after = {**ride, **fields}
     sms_result = await notify_driver_of_assignment(ride_after, driver)
 
+    await write_audit_log("dispatcher", _, "ride.driver_assigned", "ride", ride_id, {"driver_id": driver.get("driver_id")})
     return {
         "message": "Driver assigned",
         "rideId": ride_id,
@@ -1659,6 +1676,7 @@ async def confirm_fare(
         action_description="fare confirmation",
     )
 
+    await write_audit_log("dispatcher", _, "ride.fare_confirmed", "ride", ride_id, {"fare": fare_update.fare})
     return {
         "success": True,
         "rideId": ride_id,
@@ -1719,6 +1737,7 @@ async def verify_payment(
         action_description="payment update",
     )
 
+    await write_audit_log("dispatcher", _, "ride.payment_updated", "ride", ride_id, {"payment_status": payment.paymentStatus, "payment_method": payment.paymentMethod})
     return {
         "success": True,
         "rideId": ride_id,
