@@ -118,6 +118,11 @@ class CustomerLogin(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class CustomerGoogleLogin(BaseModel):
+    accessToken: str = Field(min_length=20)
+    phone: str = Field(default="", max_length=30)
+
+
 class PaystackInitialize(BaseModel):
     reference: str = Field(min_length=1)
     email: str = Field(min_length=3)
@@ -956,6 +961,80 @@ async def customer_logout(response: Response):
         path="/api",
     )
     return {"authenticated": False}
+
+
+@app.post("/api/customer/auth/google")
+async def customer_google_login(credentials: CustomerGoogleLogin, response: Response):
+    url, service_key = supabase_settings()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            auth_response = await client.get(
+                f"{url}/auth/v1/user",
+                headers={
+                    "apikey": service_key,
+                    "Authorization": f"Bearer {credentials.accessToken}",
+                },
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Unable to verify Google sign-in.") from exc
+
+    if auth_response.is_error:
+        raise HTTPException(status_code=401, detail="Google sign-in could not be verified.")
+
+    try:
+        auth_user = auth_response.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Google sign-in returned an invalid response.") from exc
+
+    email = str(auth_user.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=422, detail="Google did not provide an email address.")
+
+    customer = await find_customer_by_email(email)
+    if not customer:
+        phone = credentials.phone.strip()
+        if not phone:
+            raise HTTPException(status_code=422, detail="Phone number is required for a new Google account.")
+        if await find_customer_by_phone(phone):
+            raise HTTPException(status_code=409, detail="That phone number is already linked to another account.")
+        metadata = auth_user.get("user_metadata") or {}
+        full_name = (
+            str(metadata.get("full_name") or metadata.get("name") or "").strip()
+            or email.split("@", 1)[0]
+        )
+        rows = await supabase_request(
+            "POST",
+            SUPABASE_TABLE_CUSTOMERS,
+            json_body={
+                "full_name": full_name,
+                "phone": phone,
+                "email": email,
+                "password_hash": None,
+            },
+            action_description="Google customer account creation",
+        )
+        customer = rows[0] if rows else None
+        if not customer:
+            raise HTTPException(status_code=502, detail="Google customer account could not be created.")
+
+    response.set_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        value=create_session(str(customer["id"]), customer_session_secret(), CUSTOMER_SESSION_TTL),
+        max_age=CUSTOMER_SESSION_TTL,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
+    return {
+        "authenticated": True,
+        "customer": {
+            "id": customer.get("id"),
+            "fullName": customer.get("full_name"),
+            "phone": customer.get("phone"),
+            "email": customer.get("email"),
+        },
+    }
 
 
 @app.get("/api/customer/rides")
