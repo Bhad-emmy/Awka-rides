@@ -1,5 +1,5 @@
 const API_BASE = document.querySelector('meta[name="awka-api-base"]')?.content || "/api";
-const state = { rides: [], selectedRide: null, drivers: [], selectedDriverId: null, map: null, markers: [], mutationInProgress: false };
+const state = { rides: [], selectedRide: null, drivers: [], selectedDriverId: null, map: null, markers: [], mutationInProgress: false };\nlet csrfToken = null;
 const $ = (selector) => document.querySelector(selector);
 const statusClass = (status) => String(status || "").replaceAll(" ", "-");
 const display = (value) => value === null || value === undefined || value === "" ? "Not provided" : String(value);
@@ -179,9 +179,14 @@ function setFeedback(message, success = false) {
 }
 
 async function apiRequest(path, options = {}) {
+    const method = String(options.method || "GET").toUpperCase();
+    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+    if (!["GET", "HEAD", "OPTIONS"].includes(method) && csrfToken) {
+        headers["X-CSRF-Token"] = csrfToken;
+    }
     const response = await fetch(`${API_BASE}${path}`, {
         credentials: "include",
-        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        headers,
         ...options
     });
     const body = await response.json().catch(() => ({}));
@@ -514,6 +519,8 @@ $("#login-form").addEventListener("submit", async (event) => {
                 password: $("#login-password").value
             })
         });
+        const session = await apiRequest("/auth/session");
+        csrfToken = session?.csrfToken || null;
         showDispatcher();
         await loadRides();
         await checkForNewRideRequests();
@@ -531,6 +538,7 @@ $("#logout-button").addEventListener("click", async () => {
     try {
         await apiRequest("/auth/logout", { method: "POST" });
     } finally {
+        csrfToken = null;
         state.selectedRide = null;
         state.rides = [];
         knownRequestedRideIds.clear();
@@ -554,6 +562,9 @@ async function initialize() {
             credentials: "include"
         });
         if (response.ok) {
+            const data = await response.json().catch(() => ({}));
+            csrfToken = data?.csrfToken || null;
+            if (!csrfToken) throw new Error("Dispatcher security token unavailable.");
             showDispatcher();
             await loadRides();
             await checkForNewRideRequests();
