@@ -89,12 +89,19 @@
 
       <div class="account-card">
         <button id="profile-action" data-go="profile"><span class="row-icon icon-user"></span><span><b>Profile</b><small>Manage your name and phone number</small></span><span class="chevron">›</span></button>
+        <button id="previous-rides-action" data-go="previous-rides"><span class="row-icon">🛺</span><span><b>Previous Rides</b><small>View past trips and rebook a route</small></span><span class="chevron">›</span></button>
         <button id="faq-action" data-go="faq"><span class="row-icon icon-help">?</span><span><b>FAQ</b><small>Answers about using Ọka-Rides</small></span><span class="chevron">›</span></button>
         <button id="account-auth-action" data-go-login hidden><span class="row-icon icon-login"></span><span><b>Sign in / Create account</b><small>Save your ride history</small></span><span class="chevron">›</span></button>
         <button id="support-action" type="button"><span class="row-icon icon-help">?</span><span><b>Support</b><small>Talk to Ọka-Rides</small></span><span class="chevron">›</span></button>
       </div>
 
       <button class="logout-btn" id="logout-btn" hidden>Log out</button>
+    </section>
+
+    <section class="screen" data-screen="previous-rides">
+      <div class="page-head"><button class="back round-icon" data-go="account">‹</button><h1>Previous Rides</h1><button class="round-icon" id="refresh-previous-rides" aria-label="Refresh">↻</button></div>
+      <p class="faq-intro">Your completed and cancelled trips. Tap Rebook to use the same route again.</p>
+      <div id="previous-rides-list" class="ride-list"><div class="empty"><span class="empty-icon">🛺</span><h2>No previous rides</h2><p>Your completed and cancelled rides will appear here.</p></div></div>
     </section>
 
     <section class="screen" data-screen="faq">
