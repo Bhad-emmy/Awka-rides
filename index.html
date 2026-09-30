@@ -7,6 +7,7 @@
 <title>Ọka-Rides</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="app-test.css">
 </head>
 <body>
@@ -53,6 +54,8 @@
         <strong>Where to?</strong>
         <span class="later">Now</span>
       </button>
+
+      <div id="oka-map" class="oka-map" aria-label="Ọka-Rides map"></div>
 
       <div class="recent-places">
         <button data-go="book"><span class="place-icon icon-clock"></span><span><b>Choose pickup location</b><small>Awka, Anambra</small></span></button>
@@ -140,6 +143,7 @@
     <button class="nav-item" data-nav="account"><span class="icon icon-user"></span><small>Account</small></button>
   </nav>
 </div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="app-test.js"></script>
 </body>
 </html>
