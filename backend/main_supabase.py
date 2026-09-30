@@ -100,36 +100,37 @@ def request_origin_is_allowed(request: Request) -> bool:
     return False
 
 
-def hash_csrf_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+def csrf_secret() -> str:
+    secret = os.getenv("CSRF_SECRET") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if not secret:
+        raise HTTPException(status_code=500, detail="CSRF security is not configured on the server.")
+    return secret
 
 
-def create_csrf_token() -> str:
-    return secrets.token_urlsafe(32)
+def create_csrf_token(session_cookie: str) -> str:
+    nonce = secrets.token_urlsafe(32)
+    message = f"{len(session_cookie)}!{session_cookie}!{len(nonce)}!{nonce}"
+    signature = hmac.new(
+        csrf_secret().encode("utf-8"),
+        message.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{signature}.{nonce}"
 
 
-def dispatcher_csrf_token(session_cookie: str, session_secret: str) -> str:
-    return hmac.new(session_secret.encode("utf-8"), session_cookie.encode("utf-8"), hashlib.sha256).hexdigest()
-
-
-async def validate_customer_csrf(session_cookie: str, supplied_token: str | None):
-    if not supplied_token:
+def validate_csrf_token(session_cookie: str, supplied_token: str | None):
+    if not supplied_token or "." not in supplied_token:
         raise HTTPException(status_code=403, detail="CSRF token required.")
-    rows = await supabase_request(
-        "GET",
-        SUPABASE_TABLE_CUSTOMER_SESSIONS,
-        params={
-            "select": "csrf_token_hash",
-            "token_hash": f"eq.{hash_customer_session_token(session_cookie)}",
-            "revoked_at": "is.null",
-            "expires_at": f"gt.{datetime.now(timezone.utc).isoformat()}",
-            "limit": "1",
-        },
-        action_description="customer CSRF validation",
-    )
-    if not rows or not rows[0].get("csrf_token_hash"):
-        raise HTTPException(status_code=403, detail="CSRF token required.")
-    if not hmac.compare_digest(rows[0]["csrf_token_hash"], hash_csrf_token(supplied_token)):
+    signature, nonce = supplied_token.split(".", 1)
+    if not signature or not nonce:
+        raise HTTPException(status_code=403, detail="Invalid CSRF token.")
+    message = f"{len(session_cookie)}!{session_cookie}!{len(nonce)}!{nonce}"
+    expected = hmac.new(
+        csrf_secret().encode("utf-8"),
+        message.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected):
         raise HTTPException(status_code=403, detail="Invalid CSRF token.")
 
 
@@ -149,14 +150,12 @@ async def csrf_protection_middleware(request: Request, call_next):
     csrf_header = request.headers.get("X-CSRF-Token")
 
     if customer_cookie:
-        await validate_customer_csrf(customer_cookie, csrf_header)
+        validate_csrf_token(customer_cookie, csrf_header)
     elif dispatcher_cookie:
         username, _, session_secret = dispatcher_settings()
         if session_username(dispatcher_cookie, session_secret) != username:
             raise HTTPException(status_code=401, detail="Dispatcher authentication required.")
-        expected = dispatcher_csrf_token(dispatcher_cookie, session_secret)
-        if not csrf_header or not hmac.compare_digest(expected, csrf_header):
-            raise HTTPException(status_code=403, detail="Invalid CSRF token.")
+        validate_csrf_token(dispatcher_cookie, csrf_header)
 
     return await call_next(request)
 
@@ -572,14 +571,13 @@ def hash_customer_session_token(token: str) -> str:
 
 async def create_customer_session(customer_id: str) -> tuple[str, str]:
     token = secrets.token_urlsafe(32)
-    csrf_token = create_csrf_token()
+    csrf_token = create_csrf_token(token)
     await supabase_request(
         "POST",
         SUPABASE_TABLE_CUSTOMER_SESSIONS,
         json_body={
             "customer_id": str(customer_id),
             "token_hash": hash_customer_session_token(token),
-            "csrf_token_hash": hash_csrf_token(csrf_token),
             "expires_at": datetime.fromtimestamp(time.time() + CUSTOMER_SESSION_TTL, tz=timezone.utc).isoformat(),
         },
         action_description="customer session creation",
@@ -993,7 +991,7 @@ async def dispatcher_session(request: Request):
     username, _, session_secret = dispatcher_settings()
     if not session_cookie or session_username(session_cookie, session_secret) != username:
         raise HTTPException(status_code=401, detail="Dispatcher authentication required.")
-    return {"authenticated": True, "csrfToken": dispatcher_csrf_token(session_cookie, session_secret)}
+    return {"authenticated": True, "csrfToken": create_csrf_token(session_cookie)}
 
 
 @app.post("/api/auth/logout")
@@ -1085,30 +1083,6 @@ async def customer_session(request: Request, customer_id: str = Depends(require_
     session_cookie = request.cookies.get(CUSTOMER_SESSION_COOKIE)
     if not session_cookie:
         raise HTTPException(status_code=401, detail="Customer login required.")
-    rows = await supabase_request(
-        "GET",
-        SUPABASE_TABLE_CUSTOMER_SESSIONS,
-        params={
-            "select": "id,csrf_token_hash",
-            "token_hash": f"eq.{hash_customer_session_token(session_cookie)}",
-            "revoked_at": "is.null",
-            "expires_at": f"gt.{datetime.now(timezone.utc).isoformat()}",
-            "limit": "1",
-        },
-        action_description="customer CSRF token lookup",
-    )
-    if not rows:
-        raise HTTPException(status_code=401, detail="Customer login required.")
-    if rows[0].get("csrf_token_hash"):
-        raise HTTPException(status_code=409, detail="Session security token unavailable. Please log in again.")
-    csrf_token = create_csrf_token()
-    await supabase_request(
-        "PATCH",
-        SUPABASE_TABLE_CUSTOMER_SESSIONS,
-        params={"id": f"eq.{rows[0]['id']}"},
-        json_body={"csrf_token_hash": hash_csrf_token(csrf_token)},
-        action_description="customer CSRF token creation",
-    )
     return {
         "authenticated": True,
         "customer": {
@@ -1117,7 +1091,7 @@ async def customer_session(request: Request, customer_id: str = Depends(require_
             "phone": customer.get("phone"),
             "email": customer.get("email"),
         },
-        "csrfToken": csrf_token,
+        "csrfToken": create_csrf_token(session_cookie),
     }
 
 
