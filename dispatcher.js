@@ -185,9 +185,9 @@ async function apiRequest(path, options = {}) {
         headers["X-CSRF-Token"] = csrfToken;
     }
     const response = await fetch(`${API_BASE}${path}`, {
+        ...options,
         credentials: "include",
-        headers,
-        ...options
+        headers
     });
     const body = await response.json().catch(() => ({}));
     if (response.status === 401 && !path.startsWith("/auth/")) {
