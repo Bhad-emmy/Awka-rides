@@ -43,7 +43,7 @@ async function openRide(reference,silent=false){
         (r.driverPhone?'<a class="driver-call" href="tel:'+encodeURIComponent(r.driverPhone)+'">Call driver</a>':"<p class=\"driver-muted\">Driver phone number not available.</p>")+
         '</div>':
         '<div class="driver-panel pending"><div class="driver-panel-title">Driver</div><p>Your ride has been requested. The dispatcher will assign a driver here.</p></div>');
-    document.querySelector("#close-ride-detail")?.addEventListener("click",()=>{detail.hidden=true});
+    document.querySelector("#close-ride-detail")?.addEventListener("click",()=>{detail.hidden=true;stopRidePolling();activeRideReference=null});
   }catch(err){detail.innerHTML='<div class="ride-detail-loading">'+escapeHtml(err.message)+'</div>'}
 }
 async function loadRides(){
