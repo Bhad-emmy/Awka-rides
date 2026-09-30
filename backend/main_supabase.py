@@ -247,7 +247,6 @@ class CustomerProfileUpdate(BaseModel):
 class PaystackInitialize(BaseModel):
     reference: str = Field(min_length=1)
     email: str = Field(min_length=3)
-
 RideListStatus = Literal[
     "REQUESTED",
     "DRIVER ASSIGNED",
@@ -497,8 +496,7 @@ def verify_password(password: str, encoded_hash: str):
 
     if prefix != PASSWORD_HASH_PREFIX or iterations < 100_000:
         return False
-    actual_digest = hashlib.pbkdf2_hmac(
-        "sha256",
+    actual_digest = hashlib.pbkdf2_hmac(        "sha256",
         password.encode(),
         salt,
         iterations,
@@ -747,8 +745,7 @@ async def write_audit_log(actor_type: str, actor_id: str, action: str, entity_ty
         pass
 
 def ride_representation(record: dict) -> dict:
-    return {
-        "id": record.get("id"),
+    return {        "id": record.get("id"),
         "reference": record.get("reference"),
         "name": record.get("name"),
         "phone": record.get("phone"),
@@ -997,8 +994,7 @@ async def dispatcher_logout(response: Response):
     response.delete_cookie(        key=DISPATCHER_SESSION_COOKIE,
         httponly=True,
         secure=os.getenv("DISPATCHER_COOKIE_SECURE", "true").lower() == "true",
-        samesite="strict",
-        path="/api",
+        samesite="strict",        path="/api",
     )
     return {"authenticated": False}
 
@@ -1163,6 +1159,13 @@ async def customer_signup(credentials: CustomerSignup, response: Response, reque
         raise HTTPException(status_code=502, detail="Customer account could not be created.")
 
     session_token, csrf_token = await create_customer_session(str(customer["id"]))
+    response.delete_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
         value=session_token,
@@ -1195,6 +1198,13 @@ async def customer_login(credentials: CustomerLogin, response: Response, request
         raise HTTPException(status_code=401, detail="Invalid email or password.")
 
     session_token, csrf_token = await create_customer_session(str(customer["id"]))
+    response.delete_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
         value=session_token,
@@ -1233,6 +1243,13 @@ async def customer_logout(
         samesite="lax",
         path="/",
     )
+    response.delete_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
     return {"authenticated": False}
 
 
@@ -1247,8 +1264,7 @@ async def customer_google_login(credentials: CustomerGoogleLogin, response: Resp
                 headers={                    "apikey": service_key,
                     "Authorization": f"Bearer {credentials.accessToken}",
                 },
-            )
-    except httpx.HTTPError as exc:
+            )    except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Unable to verify Google sign-in.") from exc
 
     if auth_response.is_error:
@@ -1291,6 +1307,13 @@ async def customer_google_login(credentials: CustomerGoogleLogin, response: Resp
             raise HTTPException(status_code=502, detail="Google customer account could not be created.")
 
     session_token, csrf_token = await create_customer_session(str(customer["id"]))
+    response.delete_cookie(
+        key=CUSTOMER_SESSION_COOKIE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
         value=session_token,
@@ -1497,8 +1520,7 @@ async def paystack_webhook(request: Request):
     if not fare:
         raise HTTPException(status_code=409, detail="Ride fare is unavailable.")
 
-    verified = await verify_paystack_transaction(
-        reference,
+    verified = await verify_paystack_transaction(        reference,
         naira_to_kobo(float(fare)),
         secret,
     )
