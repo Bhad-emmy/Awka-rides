@@ -1065,7 +1065,7 @@ async def customer_login(credentials: CustomerLogin, response: Response, request
 
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
-        value=create_session(str(customer["id"]), CUSTOMER_SESSION_TTL),
+        value=await create_customer_session(str(customer["id"])),
         max_age=CUSTOMER_SESSION_TTL,
         httponly=True,
         secure=True,
@@ -1160,7 +1160,7 @@ async def customer_google_login(credentials: CustomerGoogleLogin, response: Resp
 
     response.set_cookie(
         key=CUSTOMER_SESSION_COOKIE,
-        value=create_session(str(customer["id"]), customer_session_secret(), CUSTOMER_SESSION_TTL),
+        value=await create_customer_session(str(customer["id"])),
         max_age=CUSTOMER_SESSION_TTL,
         httponly=True,
         secure=True,
