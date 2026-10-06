@@ -1,4 +1,5 @@
 import os
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -8,6 +9,9 @@ from collections import defaultdict, deque
 import json
 import secrets
 import time
+import smtplib
+import ssl
+from email.message import EmailMessage
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -26,6 +30,7 @@ SUPABASE_TABLE_CUSTOMERS = "oka_rides_customers"
 SUPABASE_TABLE_AUDIT_LOGS = "oka_rides_audit_logs"
 SUPABASE_TABLE_CUSTOMER_SESSIONS = "oka_rides_customer_sessions"
 PAYSTACK_API_BASE = "https://api.paystack.co"
+SUPABASE_TABLE_PASSWORD_RESET_TOKENS = "oka_rides_password_reset_tokens"
 
 app = FastAPI(title="Awka Rides API")
 
@@ -36,6 +41,15 @@ SIGNUP_RATE_LIMIT_MAX = int(os.getenv("SIGNUP_RATE_LIMIT_MAX", "5"))
 RIDE_RATE_LIMIT_MAX = int(os.getenv("RIDE_RATE_LIMIT_MAX", "5"))
 PAYMENT_RATE_LIMIT_MAX = int(os.getenv("PAYMENT_RATE_LIMIT_MAX", "5"))
 ACTION_RATE_LIMIT_WINDOW = int(os.getenv("ACTION_RATE_LIMIT_WINDOW", "900"))
+GLOBAL_API_RATE_LIMIT_MAX = int(os.getenv("GLOBAL_API_RATE_LIMIT_MAX", "120"))
+GLOBAL_API_RATE_LIMIT_WINDOW = int(os.getenv("GLOBAL_API_RATE_LIMIT_WINDOW", "60"))
+PASSWORD_RESET_REQUEST_IP_MAX = int(os.getenv("PASSWORD_RESET_REQUEST_IP_MAX", "5"))
+PASSWORD_RESET_REQUEST_IP_WINDOW = int(os.getenv("PASSWORD_RESET_REQUEST_IP_WINDOW", "3600"))
+PASSWORD_RESET_REQUEST_EMAIL_MAX = int(os.getenv("PASSWORD_RESET_REQUEST_EMAIL_MAX", "3"))
+PASSWORD_RESET_REQUEST_EMAIL_WINDOW = int(os.getenv("PASSWORD_RESET_REQUEST_EMAIL_WINDOW", "3600"))
+PASSWORD_RESET_CONFIRM_IP_MAX = int(os.getenv("PASSWORD_RESET_CONFIRM_IP_MAX", "5"))
+PASSWORD_RESET_CONFIRM_IP_WINDOW = int(os.getenv("PASSWORD_RESET_CONFIRM_IP_WINDOW", "900"))
+PASSWORD_RESET_TTL_SECONDS = int(os.getenv("PASSWORD_RESET_TTL_SECONDS", "1800"))
 _rate_limit_buckets = defaultdict(deque)
 
 def _client_ip(request: Request) -> str:
@@ -233,6 +247,15 @@ class CustomerLogin(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=255)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=256)
+    newPassword: str = Field(min_length=8, max_length=128)
+
+
 class CustomerGoogleLogin(BaseModel):
     accessToken: str = Field(min_length=20)
     phone: str = Field(default="", max_length=30)
@@ -352,6 +375,23 @@ async def supabase_rpc(function_name: str, json_body: dict) -> list:
     except ValueError as exc:
         raise HTTPException(status_code=502, detail="Rate-limit service returned an invalid response.") from exc
     return payload if isinstance(payload, list) else [payload]
+
+
+def _hash_rate_identifier(value: str) -> str:
+    return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()
+
+
+@app.middleware("http")
+async def global_api_rate_limit_middleware(request: Request, call_next):
+    if not request.url.path.startswith("/api/") or request.method.upper() == "OPTIONS":
+        return await call_next(request)
+    await enforce_shared_rate_limit(
+        "global-api:ip:" + _client_ip(request),
+        GLOBAL_API_RATE_LIMIT_MAX,
+        GLOBAL_API_RATE_LIMIT_WINDOW,
+        "Too many API requests. Please try again later.",
+    )
+    return await call_next(request)
 
 
 async def enforce_shared_rate_limit(key: str, maximum: int, window: int, detail: str):
@@ -580,6 +620,64 @@ async def create_customer_session(customer_id: str) -> tuple[str, str]:
         action_description="customer session creation",
     )
     return token, csrf_token
+
+
+def password_reset_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def smtp_settings():
+    host = os.getenv("SMTP_HOST", "").strip()
+    port = int(os.getenv("SMTP_PORT", "587"))
+    username = os.getenv("SMTP_USERNAME", "").strip()
+    password = os.getenv("SMTP_PASSWORD", "")
+    from_email = os.getenv("SMTP_FROM_EMAIL", "").strip()
+    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+    return host, port, username, password, from_email, use_tls
+
+
+async def send_password_reset_email(recipient: str, reset_url: str):
+    host, port, username, password, from_email, use_tls = smtp_settings()
+    if not all([host, username, password, from_email]):
+        raise HTTPException(status_code=503, detail="Password reset email service is not configured.")
+
+    message = EmailMessage()
+    message["Subject"] = "Reset your OKA Rides password"
+    message["From"] = from_email
+    message["To"] = recipient
+    message.set_content(
+        "We received a request to reset your OKA Rides password.\n\n"
+        f"Reset your password here: {reset_url}\n\n"
+        f"This link expires in {max(1, PASSWORD_RESET_TTL_SECONDS // 60)} minutes and can be used only once.\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+
+    def _send():
+        context = ssl.create_default_context()
+        if use_tls:
+            with smtplib.SMTP(host, port, timeout=15) as server:
+                server.starttls(context=context)
+                server.login(username, password)
+                server.send_message(message)
+        else:
+            with smtplib.SMTP_SSL(host, port, context=context, timeout=15) as server:
+                server.login(username, password)
+                server.send_message(message)
+
+    try:
+        await asyncio.to_thread(_send)
+    except (OSError, smtplib.SMTPException) as exc:
+        raise HTTPException(status_code=502, detail="Unable to send password reset email.") from exc
+
+
+async def revoke_customer_sessions(customer_id: str):
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_CUSTOMER_SESSIONS,
+        params={"customer_id": f"eq.{customer_id}", "revoked_at": "is.null"},
+        json_body={"revoked_at": datetime.now(timezone.utc).isoformat()},
+        action_description="customer session revocation after password reset",
+    )
 
 
 async def revoke_customer_session(token: str | None):
@@ -1186,6 +1284,102 @@ async def customer_signup(credentials: CustomerSignup, response: Response, reque
         },
         "csrfToken": csrf_token,
     }
+
+
+@app.post("/api/customer/auth/forgot-password", status_code=202)
+async def customer_forgot_password(payload: ForgotPasswordRequest, request: Request):
+    email = payload.email.strip().lower()
+    await enforce_shared_rate_limit(
+        "password-reset-request:ip:" + _client_ip(request),
+        PASSWORD_RESET_REQUEST_IP_MAX,
+        PASSWORD_RESET_REQUEST_IP_WINDOW,
+        "Too many password reset requests. Please try again later.",
+    )
+    await enforce_shared_rate_limit(
+        "password-reset-request:email:" + _hash_rate_identifier(email),
+        PASSWORD_RESET_REQUEST_EMAIL_MAX,
+        PASSWORD_RESET_REQUEST_EMAIL_WINDOW,
+        "Too many password reset requests. Please try again later.",
+    )
+
+    generic = {"message": "If an account exists for that email, a password reset link has been sent."}
+    customer = await find_customer_by_email(email)
+    if not customer or not customer.get("password_hash"):
+        return generic
+
+    token = secrets.token_urlsafe(48)
+    token_hash = password_reset_token_hash(token)
+    expires_at = datetime.fromtimestamp(
+        time.time() + PASSWORD_RESET_TTL_SECONDS, tz=timezone.utc
+    ).isoformat()
+
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_PASSWORD_RESET_TOKENS,
+        params={"customer_id": f"eq.{customer['id']}", "used_at": "is.null"},
+        json_body={"used_at": datetime.now(timezone.utc).isoformat()},
+        action_description="old password reset token invalidation",
+    )
+    await supabase_request(
+        "POST",
+        SUPABASE_TABLE_PASSWORD_RESET_TOKENS,
+        json_body={
+            "customer_id": str(customer["id"]),
+            "token_hash": token_hash,
+            "expires_at": expires_at,
+        },
+        action_description="password reset token creation",
+    )
+
+    reset_base = os.getenv("PASSWORD_RESET_URL_BASE", "").strip().rstrip("/")
+    if not reset_base:
+        configured = os.getenv("FRONTEND_ORIGIN", "").split(",")[0].strip().rstrip("/")
+        reset_base = configured or "https://oka-rides.vercel.app"
+    reset_url = f"{reset_base}/reset-password?token={token}"
+
+    try:
+        await send_password_reset_email(email, reset_url)
+    except HTTPException:
+        await supabase_request(
+            "PATCH",
+            SUPABASE_TABLE_PASSWORD_RESET_TOKENS,
+            params={"token_hash": f"eq.{token_hash}", "used_at": "is.null"},
+            json_body={"used_at": datetime.now(timezone.utc).isoformat()},
+            action_description="failed password reset token invalidation",
+        )
+        return generic
+
+    await write_audit_log("customer", customer["id"], "customer.password_reset_requested", "customer", customer["id"], {})
+    return generic
+
+
+@app.post("/api/customer/auth/reset-password")
+async def customer_reset_password(payload: ResetPasswordRequest, request: Request):
+    await enforce_shared_rate_limit(
+        "password-reset-confirm:ip:" + _client_ip(request),
+        PASSWORD_RESET_CONFIRM_IP_MAX,
+        PASSWORD_RESET_CONFIRM_IP_WINDOW,
+        "Too many password reset attempts. Please try again later.",
+    )
+    token_hash = password_reset_token_hash(payload.token)
+    rows = await supabase_rpc(
+        "oka_rides_consume_password_reset_token",
+        {"p_token_hash": token_hash},
+    )
+    if not rows or not rows[0].get("customer_id"):
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset link.")
+
+    customer_id = str(rows[0]["customer_id"])
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_CUSTOMERS,
+        params={"id": f"eq.{customer_id}"},
+        json_body={"password_hash": hash_password(payload.newPassword)},
+        action_description="customer password reset",
+    )
+    await revoke_customer_sessions(customer_id)
+    await write_audit_log("customer", customer_id, "customer.password_reset_completed", "customer", customer_id, {})
+    return {"message": "Password reset successful. Please sign in again."}
 
 
 @app.post("/api/customer/auth/login")
