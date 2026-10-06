@@ -1570,7 +1570,7 @@ async def list_drivers(_: str = Depends(require_dispatcher_session)):
         params={
             "select": "*",
             "order": "completed_rides.desc,cancelled_rides.asc",
-            "limit": "100",
+            "limit": "1000",
         },
         action_description="driver list",
     )
