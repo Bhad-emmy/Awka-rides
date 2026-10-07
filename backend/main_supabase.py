@@ -8,7 +8,7 @@ from collections import defaultdict, deque
 import json
 import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Literal
 
 import httpx
@@ -1905,7 +1905,7 @@ async def auto_dispatch_ride(ride: dict) -> dict:
             "driver_vehicle": driver.get("vehicle"),
             "driver_plate_number": driver.get("plate_number"),
             "dispatch_offer_status": "OFFERED",
-            "dispatch_offer_expires_at": (datetime.now(timezone.utc) + __import__("datetime").timedelta(minutes=2)).isoformat(),
+            "dispatch_offer_expires_at": (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat(),
             "dispatch_attempts": (ride.get("dispatch_attempts") or 0) + 1,
             "dispatched_at": datetime.now(timezone.utc).isoformat(),
         },
