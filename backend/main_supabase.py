@@ -15,7 +15,6 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -25,7 +24,6 @@ SUPABASE_TABLE_DRIVERS = "oka_rides_drivers"
 SUPABASE_TABLE_CUSTOMERS = "oka_rides_customers"
 SUPABASE_TABLE_AUDIT_LOGS = "oka_rides_audit_logs"
 SUPABASE_TABLE_CUSTOMER_SESSIONS = "oka_rides_customer_sessions"
-PAYSTACK_API_BASE = "https://api.paystack.co"
 
 app = FastAPI(title="Awka Rides API")
 
@@ -34,7 +32,6 @@ AUTH_RATE_LIMIT_MAX = int(os.getenv("AUTH_RATE_LIMIT_MAX", "5"))
 AUTH_RATE_LIMIT_WINDOW = int(os.getenv("AUTH_RATE_LIMIT_WINDOW", "900"))
 SIGNUP_RATE_LIMIT_MAX = int(os.getenv("SIGNUP_RATE_LIMIT_MAX", "5"))
 RIDE_RATE_LIMIT_MAX = int(os.getenv("RIDE_RATE_LIMIT_MAX", "5"))
-PAYMENT_RATE_LIMIT_MAX = int(os.getenv("PAYMENT_RATE_LIMIT_MAX", "5"))
 ACTION_RATE_LIMIT_WINDOW = int(os.getenv("ACTION_RATE_LIMIT_WINDOW", "900"))
 GLOBAL_API_RATE_LIMIT_MAX = int(os.getenv("GLOBAL_API_RATE_LIMIT_MAX", "120"))
 GLOBAL_API_RATE_LIMIT_WINDOW = int(os.getenv("GLOBAL_API_RATE_LIMIT_WINDOW", "60"))
@@ -87,7 +84,6 @@ CSRF_EXEMPT_PATHS = {
     "/api/customer/auth/login",
     "/api/customer/auth/signup",
     "/api/customer/auth/google",
-    "/api/payments/paystack/webhook",
 }
 
 
@@ -140,8 +136,6 @@ def validate_csrf_token(session_cookie: str, supplied_token: str | None):
 @app.middleware("http")
 async def csrf_protection_middleware(request: Request, call_next):
     if request.method.upper() in SAFE_HTTP_METHODS or not request.url.path.startswith("/api/"):
-        return await call_next(request)
-    if request.url.path == "/api/payments/paystack/webhook":
         return await call_next(request)
     if not request_origin_is_allowed(request):
         raise HTTPException(status_code=403, detail="Untrusted request origin.")
@@ -218,7 +212,6 @@ class FareUpdate(BaseModel):
 class PaymentUpdate(BaseModel):
     paymentStatus: Literal["PAID", "FAILED"]
     paymentReference: str = ""
-    paymentMethod: Literal["OPAY", "PAYSTACK"]
 
 
 class RideStatusUpdate(BaseModel):
@@ -252,10 +245,6 @@ class CustomerProfileUpdate(BaseModel):
     phone: str = Field(min_length=7, max_length=30)
     reauth: str = Field(default="", max_length=128)
 
-
-class PaystackInitialize(BaseModel):
-    reference: str = Field(min_length=1)
-    email: str = Field(min_length=3)
 RideListStatus = Literal[
     "REQUESTED",
     "DRIVER ASSIGNED",
@@ -914,7 +903,6 @@ def ride_representation(record: dict) -> dict:
         "fareConfirmed": record.get("fare_confirmed", False),
         "paymentStatus": record.get("payment_status"),
         "paymentReference": record.get("payment_reference"),
-        "paymentMethod": record.get("payment_method"),
         "pickupLatitude": record.get("pickup_latitude"),
         "pickupLongitude": record.get("pickup_longitude"),
         "destinationLatitude": record.get("destination_latitude"),
@@ -930,167 +918,6 @@ def ride_representation(record: dict) -> dict:
         "dispatchOfferStatus": record.get("dispatch_offer_status", "NONE"),
         "dispatchOfferExpiresAt": record.get("dispatch_offer_expires_at"),
     }
-
-
-def naira_to_kobo(amount: float) -> int:
-    if (
-        not isinstance(amount, (int, float))
-        or isinstance(amount, bool)
-        or amount <= 0
-    ):
-        raise ValueError("Amount must be greater than zero.")
-    kobo = round(amount * 100)
-    if kobo <= 0:
-        raise ValueError("Amount must be greater than zero.")
-    return kobo
-
-
-def paystack_secret():
-    secret = os.getenv("PAYSTACK_SECRET_KEY")
-    if not secret:
-        raise HTTPException(
-            status_code=500,
-            detail="Paystack is not configured on the server.",
-        )
-    return secret
-
-
-def paystack_callback_url():
-    callback = os.getenv("PAYSTACK_CALLBACK_URL")
-    if not callback:
-        raise HTTPException(
-            status_code=500,
-            detail="Paystack callback URL is not configured.",
-        )
-    return callback
-
-
-def paystack_signature_is_valid(
-    raw_body: bytes,
-    supplied_signature: str | None,
-    secret: str,
-) -> bool:
-    if not supplied_signature:
-        return False
-    expected = hmac.new(
-        secret.encode(),
-        raw_body,
-        hashlib.sha512,
-    ).hexdigest()
-    return hmac.compare_digest(expected, supplied_signature)
-
-async def verify_paystack_transaction(
-    reference: str,
-    expected_amount_kobo: int,
-    secret: str,
-):
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(
-                f"{PAYSTACK_API_BASE}/transaction/verify/{reference}",
-                headers={"Authorization": f"Bearer {secret}"},
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to verify payment with Paystack.",
-        ) from exc
-
-    if response.is_error:
-        raise HTTPException(
-            status_code=502,
-            detail="Paystack rejected the payment verification request.",
-        )
-
-    payload = response.json()
-    data = payload.get("data") or {}
-
-    if payload.get("status") is not True or data.get("status") != "success":
-        raise HTTPException(
-            status_code=402,
-            detail="Paystack payment was not successful.",
-        )
-
-    if data.get("reference") != reference:
-        raise HTTPException(
-            status_code=409,
-            detail="Paystack reference mismatch.",
-        )
-
-    if data.get("currency") != "NGN" or data.get("amount") != expected_amount_kobo:
-        raise HTTPException(
-            status_code=409,
-            detail="Paystack payment amount mismatch.",
-        )
-
-    return data
-
-
-async def fetch_paystack_transaction(reference: str, secret: str) -> dict:
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(
-                f"{PAYSTACK_API_BASE}/transaction/verify/{reference}",
-                headers={"Authorization": f"Bearer {secret}"},
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to verify payment with Paystack.",
-        ) from exc
-
-    if response.is_error:
-        raise HTTPException(
-            status_code=502,
-            detail="Paystack verification failed.",
-        )
-
-    payload = response.json()
-    data = payload.get("data") or {}
-    if payload.get("status") is not True or data.get("status") != "success":
-        raise HTTPException(
-            status_code=402,
-            detail="Paystack payment was not successful.",
-        )
-    return data
-
-
-async def mark_paystack_paid(record: dict, paystack_data: dict):
-    if record.get("payment_status") == "PAID":
-        if record.get("payment_reference") == paystack_data.get("reference"):
-            return False
-        raise HTTPException(
-            status_code=409,
-            detail="Ride already has a different successful payment.",
-        )
-
-    fare = record.get("fare")
-    if not record.get("fare_confirmed") or not fare:
-        raise HTTPException(
-            status_code=409,
-            detail="Ride does not have a confirmed fare.",
-        )
-
-    expected = naira_to_kobo(float(fare))
-    if paystack_data.get("amount") != expected:
-        raise HTTPException(
-            status_code=409,
-            detail="Paystack payment amount mismatch.",
-        )
-
-    await supabase_request(
-        "PATCH",
-        SUPABASE_TABLE_RIDES,
-        params={"id": f"eq.{record['id']}"},
-        json_body={
-            "payment_status": "PAID",
-            "payment_reference": paystack_data["reference"],
-            "payment_method": "PAYSTACK",
-            "status": "PAID",
-        },
-        action_description="payment update",
-    )
-    return True
 
 
 @app.get("/api/health")
@@ -1503,159 +1330,6 @@ async def customer_ride(
             "driverPlateNumber": record.get("driver_plate_number"),
         })
     return response
-
-
-@app.post("/api/payments/paystack/initialize")
-async def initialize_paystack_payment(
-    request: Request,
-    payment: PaystackInitialize,
-    customer_id: str = Depends(require_customer_session),
-):
-    await enforce_shared_rate_limit("customer:" + str(customer_id) + ":payment-init", PAYMENT_RATE_LIMIT_MAX, ACTION_RATE_LIMIT_WINDOW, "Too many payment attempts. Please try again later.")
-    secret = paystack_secret()
-    record = await get_customer_ride(payment.reference, customer_id)
-
-    if (
-        record.get("status") != "DRIVER ASSIGNED"
-        or record.get("fare_confirmed") is not True
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="Payment is only available after a driver is assigned and the fare is confirmed.",
-        )
-
-    if record.get("payment_status") == "PAID":
-        raise HTTPException(status_code=409, detail="This ride has already been paid.")
-
-    fare = record.get("fare")
-    try:
-        amount_kobo = naira_to_kobo(float(fare))
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=409,
-            detail="This ride does not have a valid confirmed fare.",
-        ) from exc
-
-    safe_reference = (
-        "OKARIDE-"
-        + "".join(ch for ch in payment.reference if ch.isalnum() or ch in "-.=")
-        + "-"
-        + secrets.token_hex(4)
-    )
-
-    payload = {
-        "email": str(record.get("email") or payment.email).strip(),
-        "amount": str(amount_kobo),
-        "currency": "NGN",
-        "reference": safe_reference,
-        "callback_url": paystack_callback_url(),
-        "metadata": {"ride_reference": payment.reference},
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(
-                f"{PAYSTACK_API_BASE}/transaction/initialize",
-                headers={
-                    "Authorization": f"Bearer {secret}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to initialize payment with Paystack.",
-        ) from exc
-
-    try:
-        response_payload = response.json()
-    except ValueError:
-        response_payload = {}
-
-    if response.is_error or response_payload.get("status") is not True:
-        raise HTTPException(
-            status_code=502,
-            detail="Paystack could not initialize the payment.",
-        )
-
-    data = response_payload.get("data") or {}
-    return {
-        "authorizationUrl": data.get("authorization_url"),
-        "accessCode": data.get("access_code"),
-        "reference": data.get("reference"),
-    }
-
-
-@app.get("/api/payments/paystack/callback")
-async def paystack_callback(reference: str = Query(min_length=1)):
-    secret = paystack_secret()
-    data = await fetch_paystack_transaction(reference, secret)
-    ride_reference = (data.get("metadata") or {}).get("ride_reference")
-
-    if not ride_reference:
-        raise HTTPException(
-            status_code=400,
-            detail="Payment is missing ride metadata.",
-        )
-
-    record = await find_ride_by_reference(ride_reference)
-    fare = record.get("fare")
-    if not fare:
-        raise HTTPException(status_code=409, detail="Ride fare is unavailable.")
-
-    verified = await verify_paystack_transaction(
-        reference,
-        naira_to_kobo(float(fare)),
-        secret,
-    )
-    await mark_paystack_paid(record, verified)
-
-    frontend = os.getenv("FRONTEND_ORIGIN", "").split(",")[0].strip()
-    if frontend:
-        return RedirectResponse(
-            url=f"{frontend.rstrip('/')}/success.html?payment=success&reference={reference}"
-        )
-
-    return {"success": True, "reference": reference}
-
-
-@app.post("/api/payments/paystack/webhook")
-async def paystack_webhook(request: Request):
-    secret = paystack_secret()
-    raw_body = await request.body()
-    signature = request.headers.get("x-paystack-signature")
-
-    if not paystack_signature_is_valid(raw_body, signature, secret):
-        raise HTTPException(status_code=401, detail="Invalid webhook signature.")
-
-    try:
-        event = json.loads(raw_body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=400, detail="Invalid webhook payload.") from exc
-
-    if event.get("event") != "charge.success":
-        return {"received": True}
-
-    data = event.get("data") or {}
-    reference = data.get("reference")
-    ride_reference = (data.get("metadata") or {}).get("ride_reference")
-
-    if not reference or not ride_reference:
-        return {"received": True}
-
-    record = await find_ride_by_reference(ride_reference)
-    fare = record.get("fare")
-    if not fare:
-        raise HTTPException(status_code=409, detail="Ride fare is unavailable.")
-
-    verified = await verify_paystack_transaction(        reference,
-        naira_to_kobo(float(fare)),
-        secret,
-    )
-    await mark_paystack_paid(record, verified)
-
-    return {"received": True, "processed": True}
 
 
 @app.get("/api/rides")
@@ -2456,7 +2130,7 @@ async def verify_payment(
     if payment.paymentStatus == "PAID":
         fields.update({
             "payment_reference": payment.paymentReference.strip(),
-            "payment_method": payment.paymentMethod,
+            "payment_method": None,
             "status": "PAID",
         })
     else:
@@ -2474,7 +2148,7 @@ async def verify_payment(
 
     await write_audit_log(
         "dispatcher", _, "ride.payment_updated", "ride", ride_id,
-        {"payment_status": payment.paymentStatus, "payment_method": payment.paymentMethod},
+        {"payment_status": payment.paymentStatus},
     )
     return {
         "success": True,
