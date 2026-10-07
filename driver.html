@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#21a366">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="/driver-manifest.json">
+<link rel="stylesheet" href="/driver.css">
+<title>Ọka-Rides Driver</title>
+</head>
+<body>
+<main class="driver-app">
+  <section id="login-view" class="view active">
+    <div class="brand">ỌKA<span>-RIDES</span></div>
+    <p class="eyebrow">DRIVER</p>
+    <h1>Driver sign in</h1>
+    <p class="muted">Use the Driver ID and PIN provided by dispatch.</p>
+    <form id="login-form" class="card">
+      <label>Driver ID<input id="driver-id" autocomplete="username" required></label>
+      <label>PIN<input id="driver-pin" type="password" inputmode="numeric" autocomplete="current-password" minlength="4" required></label>
+      <p id="login-message" class="message"></p>
+      <button class="primary" type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <section id="app-view" class="view">
+    <header class="topbar">
+      <div><div class="brand small">ỌKA<span>-RIDES</span></div><strong id="driver-name">Driver</strong></div>
+      <button id="logout" class="text-button">Log out</button>
+    </header>
+
+    <div class="driver-card">
+      <div>
+        <span class="eyebrow">STATUS</span>
+        <strong id="availability-label">OFFLINE</strong>
+      </div>
+      <button id="availability-toggle" class="toggle" type="button">Go online</button>
+    </div>
+
+    <p id="app-message" class="message"></p>
+
+    <section id="offer-section" class="card hidden">
+      <div class="section-head"><span class="eyebrow">NEW RIDE</span><span id="offer-expiry"></span></div>
+      <h2 id="offer-destination">Ride request</h2>
+      <div class="route"><div><b>Pickup</b><span id="offer-pickup"></span></div><div><b>Destination</b><span id="offer-destination-2"></span></div></div>
+      <div class="actions">
+        <button id="reject-offer" class="secondary">Reject</button>
+        <button id="accept-offer" class="primary">Accept ride</button>
+      </div>
+    </section>
+
+    <section id="current-section" class="card hidden">
+      <div class="section-head"><span class="eyebrow">CURRENT RIDE</span><span id="ride-status"></span></div>
+      <h2 id="current-destination">Ride</h2>
+      <div class="route"><div><b>Pickup</b><span id="current-pickup"></span></div><div><b>Destination</b><span id="current-destination-2"></span></div></div>
+      <div class="ride-meta"><span id="current-passengers"></span><a id="current-phone" href="#"></a></div>
+      <button id="ride-action" class="primary full">Mark picked up</button>
+    </section>
+
+    <section id="waiting-section" class="empty-card">
+      <div class="empty-icon">🛺</div>
+      <h2 id="waiting-title">You're offline</h2>
+      <p id="waiting-text">Go online when you're ready to receive ride offers.</p>
+    </section>
+  </section>
+</main>
+<script src="/driver.js"></script>
+</body>
+</html>
