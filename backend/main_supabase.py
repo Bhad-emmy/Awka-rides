@@ -201,6 +201,12 @@ class DriverUpdate(BaseModel):
     currentLatitude: float | None = Field(default=None, ge=-90, le=90)
     currentLongitude: float | None = Field(default=None, ge=-180, le=180)
     notes: str | None = None
+    pin: str | None = Field(default=None, min_length=4, max_length=12)
+
+
+class DriverLogin(BaseModel):
+    driverId: str = Field(min_length=1, max_length=80)
+    pin: str = Field(min_length=4, max_length=12)
 
 
 class FareUpdate(BaseModel):
@@ -262,6 +268,7 @@ DISPATCHER_SESSION_COOKIE = "awka_dispatcher_session"
 DISPATCHER_SESSION_TTL = 8 * 60 * 60
 CUSTOMER_SESSION_COOKIE = "oka_customer_session"
 CUSTOMER_SESSION_TTL = 14 * 24 * 60 * 60
+DRIVER_TOKEN_TTL = 12 * 60 * 60
 PASSWORD_HASH_PREFIX = "pbkdf2_sha256"
 
 
@@ -478,6 +485,28 @@ async def get_driver_record(driver_id: str) -> dict:
     if not rows:
         raise HTTPException(status_code=404, detail="Driver not found.")
     return rows[0]
+
+
+def driver_session_secret() -> str:
+    secret = os.getenv("DRIVER_SESSION_SECRET") or os.getenv("DISPATCHER_SESSION_SECRET")
+    if not secret:
+        raise HTTPException(status_code=500, detail="Driver authentication is not configured on the server.")
+    return secret
+
+
+def create_driver_token(driver_id: str) -> str:
+    return create_session(driver_id, driver_session_secret(), DRIVER_TOKEN_TTL)
+
+
+def require_driver_token(
+    authorization: str | None = Header(default=None),
+) -> str:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Driver authentication required.")
+    driver_id = session_username(authorization[7:].strip(), driver_session_secret())
+    if not driver_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired driver session.")
+    return driver_id
 
 
 def dispatcher_settings():
@@ -1182,12 +1211,14 @@ async def create_ride(
     )
     notification = await send_dispatcher_sms(dispatcher_message)
 
+    dispatch = await auto_dispatch_ride(created)
     return {
         "message": "Ride request created",
         "reference": created.get("reference", reference),
         "status": created.get("status", "REQUESTED"),
         "supabaseRecordId": created.get("id"),
         "dispatcherNotification": notification,
+        "dispatch": dispatch,
     }
 
 
@@ -1716,6 +1747,7 @@ async def create_driver(
         "completed_rides": driver.completedRides,
         "cancelled_rides": driver.cancelledRides,
         "notes": driver.notes,
+        "pin_hash": hash_password(driver.pin) if driver.pin else None,
     }
 
     rows = await supabase_request(
@@ -1758,6 +1790,8 @@ async def update_driver(
         fields["current_longitude"] = driver.currentLongitude
     if driver.notes is not None:
         fields["notes"] = driver.notes
+    if driver.pin is not None:
+        fields["pin_hash"] = hash_password(driver.pin)
 
     if not fields:
         raise HTTPException(
@@ -1791,6 +1825,282 @@ async def update_driver(
         raise HTTPException(status_code=404, detail="Driver not found.")
     await write_audit_log("dispatcher", _, "driver.updated", "driver", driver_id, {"fields": sorted(fields.keys())})
     return {"message": "Driver updated", "driverId": driver_id}
+
+
+async def auto_dispatch_ride(ride: dict) -> dict:
+    """Offer a REQUESTED ride to the best currently available driver."""
+    if ride.get("status") != "REQUESTED":
+        return {"status": "SKIPPED", "reason": "Ride is not REQUESTED."}
+
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_DRIVERS,
+        params={"select": "*", "limit": "1000"},
+        action_description="automatic dispatch driver lookup",
+    )
+
+    def distance_km(lat1, lon1, lat2, lon2):
+        if None in (lat1, lon1, lat2, lon2):
+            return None
+        from math import asin, cos, radians, sin, sqrt
+        dlat = radians(lat2 - lat1)
+        dlon = radians(lon2 - lon1)
+        a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+        return 6371.0 * 2 * asin(sqrt(a))
+
+    candidates = []
+    for row in rows:
+        if (
+            row.get("status") != "ACTIVE"
+            or row.get("verification_status") != "VERIFIED"
+            or row.get("availability_status", "OFFLINE") != "ONLINE"
+        ):
+            continue
+        distance = distance_km(
+            ride.get("pickup_latitude"),
+            ride.get("pickup_longitude"),
+            row.get("current_latitude"),
+            row.get("current_longitude"),
+        )
+        candidates.append((distance, row))
+
+    if not candidates:
+        return {"status": "WAITING", "reason": "No eligible drivers are online."}
+
+    candidates.sort(
+        key=lambda item: (
+            item[0] is None,
+            item[0] if item[0] is not None else float("inf"),
+            -(item[1].get("completed_rides") or 0),
+            item[1].get("cancelled_rides") or 0,
+        )
+    )
+
+    driver = candidates[0][1]
+    driver_id = driver.get("driver_id")
+
+    reserved = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}", "availability_status": "eq.ONLINE"},
+        json_body={"availability_status": "BUSY"},
+        action_description="automatic dispatch driver reservation",
+    )
+    if not reserved:
+        return {"status": "RETRY", "reason": "Selected driver became unavailable."}
+
+    ride_id = ride.get("id")
+    offer_rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "id": f"eq.{ride_id}",
+            "status": "eq.REQUESTED",
+            "dispatch_offer_status": "eq.NONE",
+        },
+        json_body={
+            "driver_id": driver_id,
+            "driver_name": driver.get("name"),
+            "driver_phone": driver.get("phone"),
+            "driver_vehicle": driver.get("vehicle"),
+            "driver_plate_number": driver.get("plate_number"),
+            "dispatch_offer_status": "OFFERED",
+            "dispatch_offer_expires_at": (datetime.now(timezone.utc).timestamp() + 60 * 2),
+            "dispatch_attempts": (ride.get("dispatch_attempts") or 0) + 1,
+            "dispatched_at": datetime.now(timezone.utc).isoformat(),
+        },
+        action_description="automatic ride offer",
+    )
+
+    if not offer_rows:
+        await supabase_request(
+            "PATCH",
+            SUPABASE_TABLE_DRIVERS,
+            params={"driver_id": f"eq.{driver_id}", "availability_status": "eq.BUSY"},
+            json_body={"availability_status": "ONLINE"},
+            action_description="automatic dispatch reservation rollback",
+        )
+        return {"status": "RETRY", "reason": "Ride was already offered or changed."}
+
+    offered = {**ride, **offer_rows[0]}
+    notification = await notify_driver_of_assignment(offered, driver)
+    await write_audit_log(
+        "system",
+        "automatic-dispatch",
+        "ride.driver_offered",
+        "ride",
+        ride_id,
+        {"driver_id": driver_id},
+    )
+    return {
+        "status": "OFFERED",
+        "rideId": ride_id,
+        "driverId": driver_id,
+        "expiresAt": offered.get("dispatch_offer_expires_at"),
+        "notification": notification,
+    }
+
+
+@app.post("/api/driver/auth/login")
+async def driver_login(login: DriverLogin):
+    await enforce_shared_rate_limit(
+        "driver-login:" + login.driverId,
+        AUTH_RATE_LIMIT_MAX,
+        AUTH_RATE_LIMIT_WINDOW,
+        "Too many driver login attempts. Please try again later.",
+    )
+    driver = await get_driver_record(login.driverId)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=403, detail="Driver account is not active and verified.")
+    pin_hash = driver.get("pin_hash")
+    if not pin_hash or not verify_password(login.pin, pin_hash):
+        raise HTTPException(status_code=401, detail="Invalid driver credentials.")
+    return {
+        "authenticated": True,
+        "driver": {
+            "driverId": driver.get("driver_id"),
+            "name": driver.get("name"),
+            "phone": driver.get("phone"),
+            "vehicle": driver.get("vehicle"),
+            "plateNumber": driver.get("plate_number"),
+            "availabilityStatus": driver.get("availability_status", "OFFLINE"),
+        },
+        "token": create_driver_token(driver.get("driver_id")),
+    }
+
+
+@app.get("/api/driver/auth/session")
+async def driver_session(driver_id: str = Depends(require_driver_token)):
+    driver = await get_driver_record(driver_id)
+    return {
+        "authenticated": True,
+        "driver": {
+            "driverId": driver.get("driver_id"),
+            "name": driver.get("name"),
+            "phone": driver.get("phone"),
+            "vehicle": driver.get("vehicle"),
+            "plateNumber": driver.get("plate_number"),
+            "availabilityStatus": driver.get("availability_status", "OFFLINE"),
+        },
+    }
+
+
+@app.patch("/api/driver/availability")
+async def driver_availability(
+    availability: DriverUpdate,
+    driver_id: str = Depends(require_driver_token),
+):
+    if availability.availabilityStatus not in {"ONLINE", "OFFLINE"}:
+        raise HTTPException(status_code=422, detail="Driver availability must be ONLINE or OFFLINE.")
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=403, detail="Only ACTIVE and VERIFIED drivers can go ONLINE.")
+    if availability.availabilityStatus == "OFFLINE" and driver.get("availability_status") == "BUSY":
+        raise HTTPException(status_code=409, detail="Complete or reject the current ride before going OFFLINE.")
+    rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}"},
+        json_body={"availability_status": availability.availabilityStatus},
+        action_description="driver availability update",
+    )
+    return {"success": bool(rows), "availabilityStatus": availability.availabilityStatus}
+
+
+@app.get("/api/driver/offers")
+async def driver_offers(driver_id: str = Depends(require_driver_token)):
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "select": "*",
+            "driver_id": f"eq.{driver_id}",
+            "dispatch_offer_status": "eq.OFFERED",
+            "status": "eq.REQUESTED",
+            "order": "dispatched_at.desc",
+            "limit": "10",
+        },
+        action_description="driver offer lookup",
+    )
+    return {"offers": [ride_representation(row) for row in rows]}
+
+
+@app.post("/api/driver/rides/{ride_id}/accept")
+async def driver_accept_ride(
+    ride_id: str = Path(min_length=1),
+    driver_id: str = Depends(require_driver_token),
+):
+    ride = await get_ride_record(ride_id)
+    if ride.get("driver_id") != driver_id or ride.get("dispatch_offer_status") != "OFFERED":
+        raise HTTPException(status_code=409, detail="This ride is not offered to this driver.")
+    expires = ride.get("dispatch_offer_expires_at")
+    if expires:
+        try:
+            if datetime.fromisoformat(str(expires).replace("Z", "+00:00")) < datetime.now(timezone.utc):
+                raise HTTPException(status_code=409, detail="This ride offer has expired.")
+        except ValueError:
+            raise HTTPException(status_code=502, detail="Ride offer expiry is invalid.")
+
+    rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "id": f"eq.{ride_id}",
+            "driver_id": f"eq.{driver_id}",
+            "status": "eq.REQUESTED",
+            "dispatch_offer_status": "eq.OFFERED",
+        },
+        json_body={"status": "DRIVER ASSIGNED", "dispatch_offer_status": "ACCEPTED"},
+        action_description="driver ride acceptance",
+    )
+    if not rows:
+        raise HTTPException(status_code=409, detail="Ride is no longer available.")
+    await write_audit_log("driver", driver_id, "ride.driver_accepted", "ride", ride_id, {})
+    return {"success": True, "rideId": ride_id, "status": "DRIVER ASSIGNED"}
+
+
+@app.post("/api/driver/rides/{ride_id}/reject")
+async def driver_reject_ride(
+    ride_id: str = Path(min_length=1),
+    driver_id: str = Depends(require_driver_token),
+):
+    ride = await get_ride_record(ride_id)
+    if ride.get("driver_id") != driver_id or ride.get("dispatch_offer_status") != "OFFERED":
+        raise HTTPException(status_code=409, detail="This ride is not offered to this driver.")
+
+    rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "id": f"eq.{ride_id}",
+            "driver_id": f"eq.{driver_id}",
+            "status": "eq.REQUESTED",
+            "dispatch_offer_status": "eq.OFFERED",
+        },
+        json_body={
+            "driver_id": None,
+            "driver_name": None,
+            "driver_phone": None,
+            "driver_vehicle": None,
+            "driver_plate_number": None,
+            "dispatch_offer_status": "NONE",
+            "dispatch_offer_expires_at": None,
+        },
+        action_description="driver ride rejection",
+    )
+    if not rows:
+        raise HTTPException(status_code=409, detail="Ride is no longer available.")
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}", "availability_status": "eq.BUSY"},
+        json_body={"availability_status": "ONLINE"},
+        action_description="driver rejection availability reset",
+    )
+    await write_audit_log("driver", driver_id, "ride.driver_rejected", "ride", ride_id, {})
+    refreshed = await get_ride_record(ride_id)
+    dispatch = await auto_dispatch_ride(refreshed)
+    return {"success": True, "rideId": ride_id, "status": "REQUESTED", "dispatch": dispatch}
 
 
 @app.get("/api/rides/{ride_id}/dispatch-options")
@@ -1876,8 +2186,8 @@ async def dispatch_options(
             "pickupLatitude": ride.get("pickup_latitude"),
             "pickupLongitude": ride.get("pickup_longitude"),
         },
-        "dispatchMode": "MANUAL",
-        "message": "Select a driver to dispatch. No driver is assigned automatically.",
+        "dispatchMode": "AUTOMATIC_WITH_MANUAL_OVERRIDE",
+        "message": "The system offers rides automatically; dispatcher can override when needed.",
         "drivers": candidates,
     }
 
@@ -1899,6 +2209,15 @@ async def assign_driver(
     ride = await get_ride_record(ride_id)
     if ride.get("status") != "REQUESTED":
         raise HTTPException(status_code=409, detail="Only REQUESTED rides can be assigned.")
+
+    if ride.get("dispatch_offer_status") == "OFFERED" and ride.get("driver_id"):
+        await supabase_request(
+            "PATCH",
+            SUPABASE_TABLE_DRIVERS,
+            params={"driver_id": f"eq.{ride.get('driver_id')}", "availability_status": "eq.BUSY"},
+            json_body={"availability_status": "ONLINE"},
+            action_description="dispatcher offer override release",
+        )
 
     fields = {
         "status": "DRIVER ASSIGNED",
