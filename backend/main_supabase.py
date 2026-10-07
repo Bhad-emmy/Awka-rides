@@ -956,13 +956,10 @@ def paystack_secret():
 
 
 def paystack_callback_url():
-    callback = os.getenv("PAYSTACK_CALLBACK_URL")
-    if not callback:
-        raise HTTPException(
-            status_code=500,
-            detail="Paystack callback URL is not configured.",
-        )
-    return callback
+    return os.getenv(
+        "PAYSTACK_CALLBACK_URL",
+        "https://oka-rides.vercel.app/api/payments/paystack/callback",
+    )
 
 
 def paystack_signature_is_valid(
