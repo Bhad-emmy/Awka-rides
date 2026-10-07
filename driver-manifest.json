@@ -1,0 +1,9 @@
+{
+  "name":"Ọka-Rides Driver",
+  "short_name":"Ọka Driver",
+  "start_url":"/driver.html",
+  "display":"standalone",
+  "background_color":"#ffffff",
+  "theme_color":"#21a366",
+  "icons":[]
+}
