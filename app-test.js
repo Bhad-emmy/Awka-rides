@@ -97,7 +97,7 @@ async function openRide(reference,silent=false){
       btn.disabled=true; btn.textContent="Opening Paystack...";
       try{
         const session=await api("/customer/auth/session");
-        const email=session.email||"";
+        const email=session.customer?.email||"";
         const payment=await api("/payments/paystack/initialize",{method:"POST",body:JSON.stringify({reference:r.reference||reference,email})});
         if(!payment.authorizationUrl) throw new Error("Paystack did not return a payment link.");
         window.location.href=payment.authorizationUrl;
