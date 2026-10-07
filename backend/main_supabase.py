@@ -1480,6 +1480,9 @@ async def customer_ride(
 ):
     await enforce_shared_rate_limit("customer:" + str(customer_id) + ":ride-lookup", 120, 60, "Too many requests. Please try again later.")
     record = await get_customer_ride(reference, customer_id)
+    dispatch_refresh = await refresh_dispatch_offer(record)
+    if dispatch_refresh.get("status") != "UNCHANGED":
+        record = await get_customer_ride(reference, customer_id)
     status = record.get("status")
     response = {
         "reference": record.get("reference"),
@@ -1939,6 +1942,56 @@ async def auto_dispatch_ride(ride: dict) -> dict:
         "expiresAt": offered.get("dispatch_offer_expires_at"),
         "notification": notification,
     }
+
+
+async def refresh_dispatch_offer(record: dict) -> dict:
+    if record.get("status") != "REQUESTED" or record.get("dispatch_offer_status") != "OFFERED":
+        return {"status": "UNCHANGED"}
+
+    expires = record.get("dispatch_offer_expires_at")
+    if not expires:
+        return {"status": "UNCHANGED"}
+
+    try:
+        expired = datetime.fromisoformat(str(expires).replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+    except ValueError:
+        expired = True
+
+    if not expired:
+        return {"status": "UNCHANGED"}
+
+    driver_id = record.get("driver_id")
+    await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "id": f"eq.{record.get('id')}",
+            "status": "eq.REQUESTED",
+            "dispatch_offer_status": "eq.OFFERED",
+        },
+        json_body={
+            "driver_id": None,
+            "driver_name": None,
+            "driver_phone": None,
+            "driver_vehicle": None,
+            "driver_plate_number": None,
+            "dispatch_offer_status": "NONE",
+            "dispatch_offer_expires_at": None,
+        },
+        action_description="expired ride offer cleanup",
+    )
+
+    if driver_id:
+        await supabase_request(
+            "PATCH",
+            SUPABASE_TABLE_DRIVERS,
+            params={"driver_id": f"eq.{driver_id}", "availability_status": "eq.BUSY"},
+            json_body={"availability_status": "ONLINE"},
+            action_description="expired offer driver release",
+        )
+
+    refreshed = await get_ride_record(str(record.get("id")))
+    return await auto_dispatch_ride(refreshed)
 
 
 @app.post("/api/driver/auth/login")
