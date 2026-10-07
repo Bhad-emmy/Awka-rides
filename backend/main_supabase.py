@@ -926,6 +926,8 @@ def ride_representation(record: dict) -> dict:
         "createdAt": record.get("created_at"),
         "dispatchAttempts": record.get("dispatch_attempts", 0),
         "dispatchedAt": record.get("dispatched_at"),
+        "dispatchOfferStatus": record.get("dispatch_offer_status", "NONE"),
+        "dispatchOfferExpiresAt": record.get("dispatch_offer_expires_at"),
     }
 
 
