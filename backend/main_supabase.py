@@ -187,6 +187,7 @@ class DriverCreate(BaseModel):
     phone: str = Field(min_length=1)
     vehicle: str = Field(min_length=1)
     plateNumber: str = Field(min_length=1)
+    pin: str = Field(min_length=4, max_length=12)
     status: Literal["ACTIVE", "INACTIVE", "SUSPENDED"] = "INACTIVE"
     verificationStatus: Literal["PENDING", "VERIFIED", "REJECTED"] = "PENDING"
     completedRides: int = 0
@@ -2060,6 +2061,77 @@ async def driver_availability(
         action_description="driver availability update",
     )
     return {"success": bool(rows), "availabilityStatus": availability.availabilityStatus}
+
+
+@app.get("/api/driver/rides/current")
+async def driver_current_ride(driver_id: str = Depends(require_driver_token)):
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "select": "*",
+            "driver_id": f"eq.{driver_id}",
+            "status": "in.(DRIVER ASSIGNED,PAID,PICKED UP)",
+            "order": "created_at.desc",
+            "limit": "1",
+        },
+        action_description="driver current ride lookup",
+    )
+    return {"ride": ride_representation(rows[0]) if rows else None}
+
+
+@app.patch("/api/driver/rides/{ride_id}/status")
+async def driver_update_ride_status(
+    status_update: RideStatusUpdate,
+    ride_id: str = Path(min_length=1),
+    driver_id: str = Depends(require_driver_token),
+):
+    ride = await get_ride_record(ride_id)
+    if ride.get("driver_id") != driver_id:
+        raise HTTPException(status_code=403, detail="This ride is not assigned to you.")
+
+    current_status = ride.get("status")
+    allowed_transitions = {
+        "PAID": {"PICKED UP"},
+        "PICKED UP": {"COMPLETED"},
+    }
+    if status_update.status not in allowed_transitions.get(current_status, set()):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot transition ride from {current_status or 'unknown'} to {status_update.status}.",
+        )
+
+    if status_update.status == "COMPLETED":
+        driver = await get_driver_record(driver_id)
+        old_counter = driver.get("completed_rides", 0)
+        if not isinstance(old_counter, int) or isinstance(old_counter, bool) or old_counter < 0:
+            raise HTTPException(status_code=502, detail="Driver completed ride count is invalid.")
+        await supabase_request(
+            "PATCH",
+            SUPABASE_TABLE_DRIVERS,
+            params={"driver_id": f"eq.{driver_id}", "availability_status": "eq.BUSY"},
+            json_body={
+                "completed_rides": old_counter + 1,
+                "availability_status": "ONLINE",
+            },
+            action_description="driver completed ride update",
+        )
+
+    rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={"id": f"eq.{ride_id}", "driver_id": f"eq.{driver_id}", "status": f"eq.{current_status}"},
+        json_body={"status": status_update.status},
+        action_description="driver ride status update",
+    )
+    if not rows:
+        raise HTTPException(status_code=409, detail="Ride status changed. Refresh and try again.")
+
+    await write_audit_log(
+        "driver", driver_id, "ride.status_updated", "ride", ride_id,
+        {"from": current_status, "to": status_update.status},
+    )
+    return {"success": True, "rideId": ride_id, "status": status_update.status}
 
 
 @app.get("/api/driver/offers")
