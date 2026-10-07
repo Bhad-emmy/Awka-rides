@@ -137,8 +137,6 @@ def validate_csrf_token(session_cookie: str, supplied_token: str | None):
 async def csrf_protection_middleware(request: Request, call_next):
     if request.method.upper() in SAFE_HTTP_METHODS or not request.url.path.startswith("/api/"):
         return await call_next(request)
-    if request.url.path == "/api/payments/paystack/webhook":
-        return await call_next(request)
     if not request_origin_is_allowed(request):
         raise HTTPException(status_code=403, detail="Untrusted request origin.")
     if request.url.path in CSRF_EXEMPT_PATHS:
@@ -247,10 +245,6 @@ class CustomerProfileUpdate(BaseModel):
     phone: str = Field(min_length=7, max_length=30)
     reauth: str = Field(default="", max_length=128)
 
-
-class PaystackInitialize(BaseModel):
-    reference: str = Field(min_length=1)
-    email: str = Field(min_length=3)
 RideListStatus = Literal[
     "REQUESTED",
     "DRIVER ASSIGNED",
@@ -909,7 +903,6 @@ def ride_representation(record: dict) -> dict:
         "fareConfirmed": record.get("fare_confirmed", False),
         "paymentStatus": record.get("payment_status"),
         "paymentReference": record.get("payment_reference"),
-        "paymentMethod": record.get("payment_method"),
         "pickupLatitude": record.get("pickup_latitude"),
         "pickupLongitude": record.get("pickup_longitude"),
         "destinationLatitude": record.get("destination_latitude"),
