@@ -85,11 +85,24 @@ async function openRide(reference,silent=false){
     detail.innerHTML='<div class="ride-detail-head"><div><small>Ride</small><strong>'+escapeHtml(r.reference||reference)+'</strong></div><button class="round-icon" id="close-ride-detail" aria-label="Close">×</button></div>'+
       '<div class="ride-status-large">'+escapeHtml(r.status||"REQUESTED")+'</div>'+
       '<div class="ride-detail-grid"><div><small>Fare</small><b>₦'+escapeHtml(r.fare??0)+'</b></div><div><small>Payment</small><b>'+escapeHtml(r.paymentStatus||"PENDING")+'</b></div></div>'+
+      ((r.status==="DRIVER ASSIGNED" && r.fareConfirmed && r.paymentStatus!=="PAID")?
+        '<button class="primary wide" id="paystack-pay-btn" type="button">Pay ₦'+escapeHtml(r.fare??0)+' with Paystack</button><p class="driver-muted">Secure payment by Paystack.</p>':"")+
       (assigned?
         '<div class="driver-panel"><div class="driver-panel-title">Your driver</div><h3>'+escapeHtml(r.driverName||"Driver assigned")+'</h3><p>'+escapeHtml(r.driverVehicle||"Keke")+(r.driverPlateNumber?' • '+escapeHtml(r.driverPlateNumber):"")+'</p>'+
         (r.driverPhone?'<a class="driver-call" href="tel:'+encodeURIComponent(r.driverPhone)+'">Call driver</a>':"<p class=\"driver-muted\">Driver phone number not available.</p>")+
         '</div>':
         '<div class="driver-panel pending"><div class="driver-panel-title">Driver</div><p>Your ride has been requested. The dispatcher will assign a driver here.</p></div>');
+    document.querySelector("#paystack-pay-btn")?.addEventListener("click",async()=>{
+      const btn=document.querySelector("#paystack-pay-btn");
+      btn.disabled=true; btn.textContent="Opening Paystack...";
+      try{
+        const session=await api("/customer/auth/session");
+        const email=session.email||"";
+        const payment=await api("/payments/paystack/initialize",{method:"POST",body:JSON.stringify({reference:r.reference||reference,email})});
+        if(!payment.authorizationUrl) throw new Error("Paystack did not return a payment link.");
+        window.location.href=payment.authorizationUrl;
+      }catch(err){btn.disabled=false;btn.textContent="Pay ₦"+(r.fare??0)+" with Paystack";alert(err.message)}
+    });
     document.querySelector("#close-ride-detail")?.addEventListener("click",()=>{detail.hidden=true;stopRidePolling();activeRideReference=null});
   }catch(err){detail.innerHTML='<div class="ride-detail-loading">'+escapeHtml(err.message)+'</div>'}
 }
