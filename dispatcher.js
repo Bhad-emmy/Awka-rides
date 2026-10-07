@@ -264,12 +264,12 @@ function renderDetails() {
         detail("Notes", ride.notes, true), detail("Driver ID", ride.driverId), detail("Driver name", ride.driverName),
         detail("Driver phone", ride.driverPhone), detail("Driver vehicle", ride.driverVehicle), detail("Driver plate", ride.driverPlateNumber),
         detail("Fare", money(ride.fare)), detail("Fare confirmed", ride.fareConfirmed ? "Yes" : "No"),
-        detail("Payment status", ride.paymentStatus), detail("Payment reference", ride.paymentReference), detail("Payment method", ride.paymentMethod)
+        detail("Payment status", ride.paymentStatus), detail("Payment reference", ride.paymentReference)
     ].join("");
     $("#address-summary").textContent = `${display(ride.pickup)} → ${display(ride.destination)}`;
     $("#fare-input").value = ride.fare ?? "";
     $("#fare-state").textContent = ride.fareConfirmed ? `Confirmed: ${money(ride.fare)}` : "Fare not confirmed.";
-    $("#payment-state").textContent = `Status: ${display(ride.paymentStatus)} · Reference: ${display(ride.paymentReference)} · Method: ${display(ride.paymentMethod)}`;
+    $("#payment-state").textContent = `Status: ${display(ride.paymentStatus)} · Reference: ${display(ride.paymentReference)}`;
     const canAssign = ride.status === "REQUESTED";
     const canConfirmFare = ride.status === "DRIVER ASSIGNED" && !ride.fareConfirmed;
     const canRecordPayment = ride.status === "DRIVER ASSIGNED" && ride.fareConfirmed;
@@ -278,7 +278,6 @@ function renderDetails() {
     $("#fare-button").disabled = !canConfirmFare;
     $("#payment-status").disabled = !canRecordPayment;
     $("#payment-reference").disabled = !canRecordPayment;
-    $("#payment-method").disabled = !canRecordPayment;
     $("#payment-button").disabled = !canRecordPayment;
     renderLifecycleActions();
     renderMap();
@@ -457,7 +456,7 @@ async function confirmFare() {
 }
 async function recordPayment() {
     if (!state.selectedRide) return;
-    await mutate($("#payment-button"), `/rides/${encodeURIComponent(state.selectedRide.id)}/payment`, { paymentStatus: $("#payment-status").value, paymentReference: $("#payment-reference").value, paymentMethod: $("#payment-method").value });
+    await mutate($("#payment-button"), `/rides/${encodeURIComponent(state.selectedRide.id)}/payment`, { paymentStatus: $("#payment-status").value, paymentReference: $("#payment-reference").value });
 }
 async function updateStatus(button, status) { await mutate(button, `/rides/${encodeURIComponent(state.selectedRide.id)}/status`, { status }); }
 
