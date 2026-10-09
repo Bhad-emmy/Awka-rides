@@ -137,6 +137,9 @@ def validate_csrf_token(session_cookie: str, supplied_token: str | None):
 async def csrf_protection_middleware(request: Request, call_next):
     if request.method.upper() in SAFE_HTTP_METHODS or not request.url.path.startswith("/api/"):
         return await call_next(request)
+    # Paystack webhooks are server-to-server and are authenticated by their HMAC signature.
+    if request.url.path == "/api/payments/paystack/webhook":
+        return await call_next(request)
     if not request_origin_is_allowed(request):
         raise HTTPException(status_code=403, detail="Untrusted request origin.")
     if request.url.path in CSRF_EXEMPT_PATHS:
@@ -212,6 +215,9 @@ class FareUpdate(BaseModel):
 class PaymentUpdate(BaseModel):
     paymentStatus: Literal["PAID", "FAILED"]
     paymentReference: str = ""
+
+class PaystackVerifyRequest(BaseModel):
+    reference: str = Field(min_length=1, max_length=120)
 
 
 class RideStatusUpdate(BaseModel):
@@ -2156,6 +2162,195 @@ async def verify_payment(
         "paymentStatus": payment.paymentStatus,
         "rideStatus": "PAID" if payment.paymentStatus == "PAID" else "DRIVER ASSIGNED",
     }
+
+
+def paystack_secret_key() -> str:
+    key = os.getenv("PAYSTACK_SECRET_KEY", "").strip()
+    if not key:
+        raise HTTPException(status_code=503, detail="Paystack is not configured on the server.")
+    return key
+
+
+async def paystack_api(method: str, path: str, payload: dict | None = None) -> dict:
+    secret = paystack_secret_key()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.request(
+                method,
+                f"https://api.paystack.co{path}",
+                headers={"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Unable to connect to Paystack.") from exc
+    try:
+        result = response.json()
+    except ValueError:
+        result = {}
+    if response.is_error or result.get("status") is not True:
+        raise HTTPException(status_code=502, detail="Paystack could not process the payment request.")
+    return result.get("data") or {}
+
+
+def paystack_expected_amount_kobo(ride: dict) -> int:
+    try:
+        fare = float(ride.get("fare"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail="Ride fare is not valid.") from exc
+    if fare <= 0:
+        raise HTTPException(status_code=409, detail="A confirmed fare is required.")
+    return int(round(fare * 100))
+
+
+def validate_paystack_transaction(transaction: dict, ride: dict, reference: str) -> None:
+    if transaction.get("status") != "success":
+        raise HTTPException(status_code=409, detail="Paystack has not confirmed a successful payment.")
+    if str(transaction.get("reference") or "") != reference:
+        raise HTTPException(status_code=409, detail="Paystack transaction reference does not match.")
+    if transaction.get("currency") != "NGN":
+        raise HTTPException(status_code=409, detail="Paystack transaction currency does not match NGN.")
+    if int(transaction.get("amount") or 0) != paystack_expected_amount_kobo(ride):
+        raise HTTPException(status_code=409, detail="Paystack transaction amount does not match the ride fare.")
+    metadata = transaction.get("metadata") or {}
+    if str(metadata.get("ride_id") or "") != str(ride.get("id") or ""):
+        raise HTTPException(status_code=409, detail="Paystack transaction is not linked to this ride.")
+    if str(ride.get("payment_reference") or "") != reference:
+        raise HTTPException(status_code=409, detail="Payment reference is no longer active for this ride.")
+
+
+async def finalize_paystack_payment(ride: dict, reference: str, transaction: dict) -> dict:
+    validate_paystack_transaction(transaction, ride, reference)
+    if ride.get("payment_status") == "PAID" and ride.get("status") == "PAID":
+        return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
+    if ride.get("status") != "DRIVER ASSIGNED" or ride.get("fare_confirmed") is not True:
+        raise HTTPException(status_code=409, detail="Payment can only be applied to a ride with a confirmed fare and assigned driver.")
+    rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "id": f"eq.{ride.get('id')}",
+            "status": "eq.DRIVER ASSIGNED",
+            "payment_status": "neq.PAID",
+            "payment_reference": f"eq.{reference}",
+        },
+        json_body={"payment_status": "PAID", "payment_reference": reference, "payment_method": "PAYSTACK", "status": "PAID"},
+        action_description="Paystack payment confirmation",
+    )
+    if not rows:
+        current = await get_ride_record(str(ride.get("id")))
+        if current.get("payment_status") == "PAID" and current.get("status") == "PAID" and current.get("payment_reference") == reference:
+            return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
+        raise HTTPException(status_code=409, detail="Ride payment state changed. Refresh and try again.")
+    await write_audit_log("paystack", "paystack", "ride.paystack_payment_confirmed", "ride", str(ride.get("id")), {"reference": reference, "amount": transaction.get("amount")})
+    return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
+
+
+@app.post("/api/customer/rides/{reference}/paystack/initialize")
+async def initialize_paystack_payment(
+    request: Request,
+    reference: str = Path(min_length=1),
+    customer_id: str = Depends(require_customer_session),
+):
+    ride = await get_customer_ride(reference, customer_id)
+    if ride.get("status") != "DRIVER ASSIGNED" or ride.get("fare_confirmed") is not True:
+        raise HTTPException(status_code=409, detail="Payment is available after a driver is assigned and the fare is confirmed.")
+    if ride.get("payment_status") == "PAID":
+        raise HTTPException(status_code=409, detail="This ride is already paid.")
+    amount = paystack_expected_amount_kobo(ride)
+    email = str(ride.get("email") or "").strip()
+    if not email:
+        customer = await get_customer_record(customer_id)
+        email = str(customer.get("email") or "").strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="A valid customer email is required for Paystack checkout.")
+
+    payment_reference = f"OKA-{secrets.token_hex(12).upper()}"
+    rows = await supabase_request(
+        "PATCH",
+        SUPABASE_TABLE_RIDES,
+        params={"id": f"eq.{ride.get('id')}", "customer_id": f"eq.{customer_id}", "status": "eq.DRIVER ASSIGNED", "payment_status": "neq.PAID"},
+        json_body={"payment_reference": payment_reference, "payment_method": "PAYSTACK", "payment_status": "PENDING"},
+        action_description="Paystack payment initialization",
+    )
+    if not rows:
+        raise HTTPException(status_code=409, detail="Ride payment state changed. Refresh and try again.")
+
+    request_origin = request.headers.get("origin", "").rstrip("/")
+    callback_base = os.getenv("PAYSTACK_CALLBACK_URL", "").strip().rstrip("/")
+    if not callback_base:
+        callback_base = request_origin if request_origin in frontend_origins else frontend_origins[0]
+    callback_url = f"{callback_base}/?paystack=callback&ride={reference}"
+    try:
+        checkout = await paystack_api("POST", "/transaction/initialize", {
+            "email": email,
+            "amount": amount,
+            "currency": "NGN",
+            "reference": payment_reference,
+            "callback_url": callback_url,
+            "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference},
+        })
+    except HTTPException:
+        await supabase_request(
+            "PATCH", SUPABASE_TABLE_RIDES,
+            params={"id": f"eq.{ride.get('id')}", "payment_reference": f"eq.{payment_reference}"},
+            json_body={"payment_reference": None, "payment_method": None},
+            action_description="Paystack initialization rollback",
+        )
+        raise
+    authorization_url = checkout.get("authorization_url")
+    if not authorization_url or not str(authorization_url).startswith("https://checkout.paystack.com/"):
+        raise HTTPException(status_code=502, detail="Paystack did not return a valid checkout URL.")
+    return {"authorizationUrl": authorization_url, "reference": payment_reference, "amount": amount, "currency": "NGN"}
+
+
+@app.post("/api/customer/rides/{reference}/paystack/verify")
+async def verify_customer_paystack_payment(
+    body: PaystackVerifyRequest,
+    reference: str = Path(min_length=1),
+    customer_id: str = Depends(require_customer_session),
+):
+    ride = await get_customer_ride(reference, customer_id)
+    if ride.get("payment_status") == "PAID" and ride.get("status") == "PAID" and ride.get("payment_reference") == body.reference:
+        return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
+    if ride.get("status") != "DRIVER ASSIGNED" or ride.get("fare_confirmed") is not True:
+        raise HTTPException(status_code=409, detail="Ride is not eligible for payment verification.")
+    if str(ride.get("payment_reference") or "") != body.reference:
+        raise HTTPException(status_code=409, detail="Payment reference does not match this ride.")
+    transaction = await paystack_api("GET", f"/transaction/verify/{body.reference}")
+    return await finalize_paystack_payment(ride, body.reference, transaction)
+
+
+@app.post("/api/payments/paystack/webhook")
+async def paystack_webhook(request: Request):
+    secret = paystack_secret_key()
+    raw_body = await request.body()
+    supplied_signature = request.headers.get("x-paystack-signature", "")
+    expected_signature = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
+    if not supplied_signature or not hmac.compare_digest(supplied_signature, expected_signature):
+        raise HTTPException(status_code=401, detail="Invalid Paystack webhook signature.")
+    try:
+        event = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid webhook payload.")
+    if event.get("event") != "charge.success":
+        return {"received": True}
+    data = event.get("data") or {}
+    reference = str(data.get("reference") or "")
+    metadata = data.get("metadata") or {}
+    ride_id = str(metadata.get("ride_id") or "")
+    if not reference or not ride_id:
+        return {"received": True}
+    try:
+        ride = await get_ride_record(ride_id)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return {"received": True}
+        raise
+    if str(ride.get("payment_reference") or "") != reference:
+        return {"received": True}
+    transaction = await paystack_api("GET", f"/transaction/verify/{reference}")
+    await finalize_paystack_payment(ride, reference, transaction)
+    return {"received": True}
 
 
 @app.patch("/api/rides/{ride_id}/status")
