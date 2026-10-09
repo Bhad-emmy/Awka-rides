@@ -1435,14 +1435,16 @@ async def create_driver(
     driver: DriverCreate,
     _: str = Depends(require_dispatcher_session),
 ):
+    # Account activation is controlled by the backend, not by client-supplied
+    # status values. Every newly created driver is active and verified.
     payload = {
         "driver_id": driver.driverId,
         "name": driver.name,
         "phone": driver.phone,
         "vehicle": driver.vehicle,
         "plate_number": driver.plateNumber,
-        "status": driver.status,
-        "verification_status": driver.verificationStatus,
+        "status": "ACTIVE",
+        "verification_status": "VERIFIED",
         "completed_rides": driver.completedRides,
         "cancelled_rides": driver.cancelledRides,
         "notes": driver.notes,
