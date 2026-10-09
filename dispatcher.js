@@ -190,11 +190,24 @@ async function apiRequest(path, options = {}) {
         credentials: "include",
         headers
     });
-    const body = await response.json().catch(() => ({}));
+    const body = await response.json().catch(async () => {
+        const text = await response.text().catch(() => "");
+        return text ? { detail: text.slice(0, 300) } : {};
+    });
     if (response.status === 401 && !path.startsWith("/auth/")) {
         showLogin("Your dispatcher session has expired. Please log in again.");
     }
-    if (!response.ok) throw new Error(body.detail || "The API request failed.");
+    if (!response.ok) {
+        const detail = typeof body.detail === "string"
+            ? body.detail
+            : Array.isArray(body.detail)
+                ? body.detail.map((item) => item.msg || JSON.stringify(item)).join("; ")
+                : body.message || body.error || "";
+        const requestId = response.headers.get("x-vercel-id");
+        const context = `${method} ${path} · HTTP ${response.status}`;
+        console.error("Ọka-Rides API error", { context, requestId, detail: body });
+        throw new Error(detail ? `${context}: ${detail}` : `${context}: API returned an unreadable error response`);
+    }
     return body;
 }
 
