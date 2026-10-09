@@ -204,6 +204,64 @@ function setBusy(button, busy) {
     button.textContent = busy ? "Working..." : button.dataset.originalText;
 }
 
+function generateDriverId() {
+    const bytes = new Uint8Array(4);
+    if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    const suffix = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
+    return `OKA-DRV-${Date.now().toString(36).toUpperCase()}-${suffix}`;
+}
+
+function refreshGeneratedDriverId() {
+    const input = $("#new-driver-id");
+    if (input) input.value = generateDriverId();
+}
+
+$("#regenerate-driver-id").addEventListener("click", refreshGeneratedDriverId);
+
+$("#create-driver-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = $("#create-driver-button");
+    const driverId = $("#new-driver-id").value;
+    const payload = {
+        driverId,
+        name: $("#new-driver-name").value.trim(),
+        phone: $("#new-driver-phone").value.trim(),
+        vehicle: $("#new-driver-vehicle").value.trim(),
+        plateNumber: $("#new-driver-plate").value.trim().toUpperCase(),
+        pin: $("#new-driver-pin").value,
+        status: "INACTIVE",
+        verificationStatus: "PENDING",
+        notes: "TEST ACCOUNT — not approved for live rides."
+    };
+
+    if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || payload.pin.length < 4) {
+        setFeedback("Complete all driver fields. PIN must be at least 4 characters.");
+        return;
+    }
+
+    setBusy(button, true);
+    try {
+        const result = await apiRequest("/drivers", {
+            method: "POST",
+            body: JSON.stringify(payload)
+        });
+        $("#new-driver-pin").value = "";
+        $("#new-driver-name").value = "";
+        $("#new-driver-phone").value = "";
+        $("#new-driver-vehicle").value = "";
+        $("#new-driver-plate").value = "";
+        refreshGeneratedDriverId();
+        setFeedback(`Test driver created. Driver ID: ${result.driverId || driverId}. Account is INACTIVE and verification is PENDING.`, true);
+        if (state.selectedRide) await loadDrivers();
+    } catch (error) {
+        setFeedback(error.message || "Could not create driver account. Check whether this generated ID already exists.");
+    } finally {
+        setBusy(button, false);
+    }
+});
+
 async function loadRides() {
     const filter = $("#status-filter").value;
     $("#ride-list").innerHTML = '<div class="empty">Loading rides...</div>';
@@ -551,6 +609,7 @@ $("#logout-button").addEventListener("click", async () => {
 });
 
 async function initialize() {
+    refreshGeneratedDriverId();
     updateAlertsButton();
     clearInterval(alertPollTimer);
     stopRideAlert();
