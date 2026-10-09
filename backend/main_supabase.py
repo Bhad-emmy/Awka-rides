@@ -1449,18 +1449,42 @@ async def create_driver(
         "pin_hash": hash_password(driver.pin) if driver.pin else None,
     }
 
-    rows = await supabase_request(
-        "POST",
-        SUPABASE_TABLE_DRIVERS,
-        json_body=payload,
-        action_description="driver request",
-    )
-    created = rows[0] if rows else payload
-    return {
-        "message": "Driver created",
-        "driverId": created.get("driver_id", driver.driverId),
-        "supabaseRecordId": created.get("id"),
-    }
+    try:
+        rows = await supabase_request(
+            "POST",
+            SUPABASE_TABLE_DRIVERS,
+            json_body=payload,
+            action_description="driver request",
+        )
+        if not isinstance(rows, list):
+            raise HTTPException(
+                status_code=502,
+                detail="Supabase returned an unexpected result while creating the driver.",
+            )
+        if not rows:
+            raise HTTPException(
+                status_code=502,
+                detail="Supabase did not confirm that the driver record was created.",
+            )
+        created = rows[0]
+        return {
+            "message": "Driver created",
+            "driverId": created.get("driver_id", driver.driverId),
+            "supabaseRecordId": created.get("id"),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Keep the response actionable while recording the full exception in
+        # Vercel runtime logs for diagnosis. Never log the PIN or its hash.
+        import logging
+        logging.getLogger("oka_rides.driver_create").exception(
+            "Unexpected error while creating driver account"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Driver creation failed unexpectedly ({type(exc).__name__}).",
+        ) from exc
 
 
 @app.patch("/api/drivers/{driver_id}")
