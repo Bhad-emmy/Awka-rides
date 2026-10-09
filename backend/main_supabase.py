@@ -325,14 +325,27 @@ async def supabase_request(
             or payload.get("details")
             or f"Supabase rejected the {action_description}."
         )
-        raise HTTPException(status_code=502, detail=str(detail))
+        # Include the PostgREST error code in the API response so database
+        # schema/constraint failures can be diagnosed without leaking secrets.
+        error_code = payload.get("code")
+        diagnostic = f"{detail} (Supabase {error_code})" if error_code else str(detail)
+        raise HTTPException(status_code=502, detail=diagnostic)
 
     if not response.content:
         return []
     try:
-        return response.json()
-    except ValueError:
-        return []
+        payload = response.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Supabase returned a non-JSON response during {action_description}.",
+        ) from exc
+    if not isinstance(payload, (dict, list)):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Supabase returned an unexpected response during {action_description}.",
+        )
+    return payload
 
 
 async def supabase_rpc(function_name: str, json_body: dict) -> list:
