@@ -2171,6 +2171,37 @@ def paystack_secret_key() -> str:
     return key
 
 
+def naira_to_kobo(amount) -> int:
+    try:
+        value = float(amount)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Amount must be a positive number.") from exc
+    if value <= 0:
+        raise ValueError("Amount must be positive.")
+    return int(round(value * 100))
+
+
+def paystack_amount_matches(amount_kobo, fare) -> bool:
+    try:
+        return int(amount_kobo) == naira_to_kobo(fare)
+    except (TypeError, ValueError):
+        return False
+
+
+def paystack_payment_already_applied(ride: dict, reference: str) -> bool:
+    status = ride.get("payment_status", ride.get("Payment Status"))
+    ride_status = ride.get("status", ride.get("Status"))
+    applied_reference = ride.get("payment_reference", ride.get("Payment Reference"))
+    return status == "PAID" and ride_status == "PAID" and applied_reference == reference
+
+
+def paystack_signature_is_valid(body: bytes, signature: str | None, secret: str) -> bool:
+    if not signature or not secret:
+        return False
+    expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha512).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
 async def paystack_api(method: str, path: str, payload: dict | None = None) -> dict:
     secret = paystack_secret_key()
     try:
@@ -2194,12 +2225,9 @@ async def paystack_api(method: str, path: str, payload: dict | None = None) -> d
 
 def paystack_expected_amount_kobo(ride: dict) -> int:
     try:
-        fare = float(ride.get("fare"))
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=409, detail="Ride fare is not valid.") from exc
-    if fare <= 0:
-        raise HTTPException(status_code=409, detail="A confirmed fare is required.")
-    return int(round(fare * 100))
+        return naira_to_kobo(ride.get("fare"))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="A valid confirmed fare is required.") from exc
 
 
 def validate_paystack_transaction(transaction: dict, ride: dict, reference: str) -> None:
@@ -2209,7 +2237,7 @@ def validate_paystack_transaction(transaction: dict, ride: dict, reference: str)
         raise HTTPException(status_code=409, detail="Paystack transaction reference does not match.")
     if transaction.get("currency") != "NGN":
         raise HTTPException(status_code=409, detail="Paystack transaction currency does not match NGN.")
-    if int(transaction.get("amount") or 0) != paystack_expected_amount_kobo(ride):
+    if not paystack_amount_matches(transaction.get("amount"), ride.get("fare")):
         raise HTTPException(status_code=409, detail="Paystack transaction amount does not match the ride fare.")
     metadata = transaction.get("metadata") or {}
     if str(metadata.get("ride_id") or "") != str(ride.get("id") or ""):
@@ -2220,7 +2248,7 @@ def validate_paystack_transaction(transaction: dict, ride: dict, reference: str)
 
 async def finalize_paystack_payment(ride: dict, reference: str, transaction: dict) -> dict:
     validate_paystack_transaction(transaction, ride, reference)
-    if ride.get("payment_status") == "PAID" and ride.get("status") == "PAID":
+    if paystack_payment_already_applied(ride, reference):
         return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
     if ride.get("status") != "DRIVER ASSIGNED" or ride.get("fare_confirmed") is not True:
         raise HTTPException(status_code=409, detail="Payment can only be applied to a ride with a confirmed fare and assigned driver.")
@@ -2325,8 +2353,7 @@ async def paystack_webhook(request: Request):
     secret = paystack_secret_key()
     raw_body = await request.body()
     supplied_signature = request.headers.get("x-paystack-signature", "")
-    expected_signature = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
-    if not supplied_signature or not hmac.compare_digest(supplied_signature, expected_signature):
+    if not paystack_signature_is_valid(raw_body, supplied_signature, secret):
         raise HTTPException(status_code=401, detail="Invalid Paystack webhook signature.")
     try:
         event = json.loads(raw_body.decode("utf-8"))
