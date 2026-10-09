@@ -15,6 +15,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -84,6 +85,7 @@ CSRF_EXEMPT_PATHS = {
     "/api/customer/auth/login",
     "/api/customer/auth/signup",
     "/api/customer/auth/google",
+    "/api/driver/auth/login",
 }
 
 
@@ -141,7 +143,7 @@ async def csrf_protection_middleware(request: Request, call_next):
     if request.url.path == "/api/payments/paystack/webhook":
         return await call_next(request)
     if not request_origin_is_allowed(request):
-        raise HTTPException(status_code=403, detail="Untrusted request origin.")
+        return JSONResponse(status_code=403, content={"detail": "Untrusted request origin."})
     if request.url.path in CSRF_EXEMPT_PATHS:
         return await call_next(request)
 
@@ -150,12 +152,18 @@ async def csrf_protection_middleware(request: Request, call_next):
     csrf_header = request.headers.get("X-CSRF-Token")
 
     if customer_cookie:
-        validate_csrf_token(customer_cookie, csrf_header)
+        try:
+            validate_csrf_token(customer_cookie, csrf_header)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     elif dispatcher_cookie:
         username, _, session_secret = dispatcher_settings()
         if session_username(dispatcher_cookie, session_secret) != username:
-            raise HTTPException(status_code=401, detail="Dispatcher authentication required.")
-        validate_csrf_token(dispatcher_cookie, csrf_header)
+            return JSONResponse(status_code=401, content={"detail": "Dispatcher authentication required."})
+        try:
+            validate_csrf_token(dispatcher_cookie, csrf_header)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
     return await call_next(request)
 
@@ -380,12 +388,20 @@ def _hash_rate_identifier(value: str) -> str:
 async def global_api_rate_limit_middleware(request: Request, call_next):
     if not request.url.path.startswith("/api/") or request.method.upper() == "OPTIONS":
         return await call_next(request)
-    await enforce_shared_rate_limit(
-        "global-api:ip:" + _client_ip(request),
-        GLOBAL_API_RATE_LIMIT_MAX,
-        GLOBAL_API_RATE_LIMIT_WINDOW,
-        "Too many API requests. Please try again later.",
-    )
+    try:
+        await enforce_shared_rate_limit(
+            "global-api:ip:" + _client_ip(request),
+            GLOBAL_API_RATE_LIMIT_MAX,
+            GLOBAL_API_RATE_LIMIT_WINDOW,
+            "Too many API requests. Please try again later.",
+        )
+    except HTTPException as exc:
+        headers = dict(exc.headers or {})
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=headers,
+        )
     return await call_next(request)
 
 
