@@ -1,5 +1,6 @@
 const API_BASE = document.querySelector('meta[name="awka-api-base"]')?.content || "/api";
-const state = { rides: [], selectedRide: null, drivers: [], selectedDriverId: null, map: null, markers: [], mutationInProgress: false };\nlet csrfToken = null;
+const state = { rides: [], selectedRide: null, drivers: [], selectedDriverId: null, map: null, markers: [], mutationInProgress: false };
+let csrfToken = null;
 const $ = (selector) => document.querySelector(selector);
 const statusClass = (status) => String(status || "").replaceAll(" ", "-");
 const display = (value) => value === null || value === undefined || value === "" ? "Not provided" : String(value);
