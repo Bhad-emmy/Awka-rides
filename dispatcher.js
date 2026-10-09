@@ -204,17 +204,22 @@ function setBusy(button, busy) {
     button.textContent = busy ? "Working..." : button.dataset.originalText;
 }
 
-function generateDriverId() {
-    const bytes = new Uint8Array(4);
-    if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
-    else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-    const suffix = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
-    return `OKA-DRV-${Date.now().toString(36).toUpperCase()}-${suffix}`;
-}
-
-function refreshGeneratedDriverId() {
+async function refreshGeneratedDriverId() {
     const input = $("#new-driver-id");
-    if (input) input.value = generateDriverId();
+    if (!input) return;
+    input.value = "Loading...";
+
+    try {
+        const data = await apiRequest("/drivers");
+        const highestNumber = (data.drivers || []).reduce((highest, driver) => {
+            const match = String(driver.driverId || "").match(/^oka(\d+)$/i);
+            return match ? Math.max(highest, Number(match[1])) : highest;
+        }, 0);
+        input.value = `oka${String(highestNumber + 1).padStart(2, "0")}`;
+    } catch (error) {
+        input.value = "";
+        setFeedback("Log in to generate the next driver ID.");
+    }
 }
 
 $("#regenerate-driver-id").addEventListener("click", refreshGeneratedDriverId);
@@ -580,6 +585,7 @@ $("#login-form").addEventListener("submit", async (event) => {
         const session = await apiRequest("/auth/session");
         csrfToken = session?.csrfToken || null;
         showDispatcher();
+        await refreshGeneratedDriverId();
         await loadRides();
         await checkForNewRideRequests();
         startRideAlerts();
@@ -609,7 +615,6 @@ $("#logout-button").addEventListener("click", async () => {
 });
 
 async function initialize() {
-    refreshGeneratedDriverId();
     updateAlertsButton();
     clearInterval(alertPollTimer);
     stopRideAlert();
@@ -625,6 +630,7 @@ async function initialize() {
             csrfToken = data?.csrfToken || null;
             if (!csrfToken) throw new Error("Dispatcher security token unavailable.");
             showDispatcher();
+            await refreshGeneratedDriverId();
             await loadRides();
             await checkForNewRideRequests();
             startRideAlerts();
