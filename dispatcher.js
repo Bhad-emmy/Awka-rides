@@ -190,10 +190,17 @@ async function apiRequest(path, options = {}) {
         credentials: "include",
         headers
     });
-    const body = await response.json().catch(async () => {
-        const text = await response.text().catch(() => "");
-        return text ? { detail: text.slice(0, 300) } : {};
-    });
+    // Read the response body exactly once. A failed response.json() consumes
+    // the stream, so calling response.text() in its catch hides the real error.
+    const rawBody = await response.text().catch(() => "");
+    let body = {};
+    if (rawBody) {
+        try {
+            body = JSON.parse(rawBody);
+        } catch (_) {
+            body = { detail: rawBody.slice(0, 500) };
+        }
+    }
     if (response.status === 401 && !path.startsWith("/auth/")) {
         showLogin("Your dispatcher session has expired. Please log in again.");
     }
