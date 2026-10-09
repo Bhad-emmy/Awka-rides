@@ -1718,30 +1718,47 @@ async def refresh_dispatch_offer(record: dict) -> dict:
 
 @app.post("/api/driver/auth/login")
 async def driver_login(login: DriverLogin):
-    await enforce_shared_rate_limit(
-        "driver-login:" + login.driverId,
-        AUTH_RATE_LIMIT_MAX,
-        AUTH_RATE_LIMIT_WINDOW,
-        "Too many driver login attempts. Please try again later.",
-    )
-    driver = await get_driver_record(login.driverId)
-    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
-        raise HTTPException(status_code=403, detail="Driver account is not active and verified.")
-    pin_hash = driver.get("pin_hash")
-    if not pin_hash or not verify_password(login.pin, pin_hash):
-        raise HTTPException(status_code=401, detail="Invalid driver credentials.")
-    return {
-        "authenticated": True,
-        "driver": {
-            "driverId": driver.get("driver_id"),
-            "name": driver.get("name"),
-            "phone": driver.get("phone"),
-            "vehicle": driver.get("vehicle"),
-            "plateNumber": driver.get("plate_number"),
-            "availabilityStatus": driver.get("availability_status", "OFFLINE"),
-        },
-        "token": create_driver_token(driver.get("driver_id")),
-    }
+    stage = "rate_limit"
+    try:
+        await enforce_shared_rate_limit(
+            "driver-login:" + login.driverId,
+            AUTH_RATE_LIMIT_MAX,
+            AUTH_RATE_LIMIT_WINDOW,
+            "Too many driver login attempts. Please try again later.",
+        )
+        stage = "driver_lookup"
+        driver = await get_driver_record(login.driverId)
+        stage = "account_status"
+        if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+            raise HTTPException(status_code=403, detail="Driver account is not active and verified.")
+        stage = "pin_verification"
+        pin_hash = driver.get("pin_hash")
+        if not pin_hash or not verify_password(login.pin, pin_hash):
+            raise HTTPException(status_code=401, detail="Invalid driver credentials.")
+        stage = "token_creation"
+        token = create_driver_token(driver.get("driver_id"))
+        return {
+            "authenticated": True,
+            "driver": {
+                "driverId": driver.get("driver_id"),
+                "name": driver.get("name"),
+                "phone": driver.get("phone"),
+                "plateNumber": driver.get("plate_number"),
+                "availabilityStatus": driver.get("availability_status", "OFFLINE"),
+            },
+            "token": token,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import logging
+        logging.getLogger("oka_rides.driver_login").exception(
+            "Unexpected driver login failure at stage %s", stage
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Driver login failed during {stage} ({type(exc).__name__}).",
+        ) from exc
 
 
 @app.get("/api/driver/auth/session")
