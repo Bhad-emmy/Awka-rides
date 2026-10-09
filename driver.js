@@ -2,7 +2,7 @@ const API="/api";let token=localStorage.getItem("okaDriverToken")||"";let driver
 const $=id=>document.getElementById(id);
 function show(view){$("login-view").classList.toggle("active",view==="login");$("app-view").classList.toggle("active",view==="app")}
 function authHeaders(){return token?{Authorization:"Bearer "+token}:{}}
-async function api(path,options={}){const headers={"Content-Type":"application/json",...authHeaders(),...(options.headers||{})};const r=await fetch(API+path,{...options,headers});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data?.detail||"Request failed");return data}
+async function api(path,options={}){const headers={"Content-Type":"application/json",...authHeaders(),...(options.headers||{})};const r=await fetch(API+path,{...options,headers});const raw=await r.text().catch(()=>"");let data={};if(raw){try{data=JSON.parse(raw)}catch{data={detail:raw.slice(0,400)}}}if(!r.ok){const detail=typeof data.detail==="string"?data.detail:Array.isArray(data.detail)?data.detail.map(x=>x.msg||JSON.stringify(x)).join("; "):data.message||data.error||"";console.error("Driver API failure",{path,status:r.status,response:data});throw new Error(detail||`HTTP ${r.status}: request failed`)}return data}
 function message(text){$("app-message").textContent=text||""}
 function setWaiting(title,text){$("waiting-title").textContent=title;$("waiting-text").textContent=text;$("waiting-section").classList.remove("hidden")}
 function hideWaiting(){$("waiting-section").classList.add("hidden")}
