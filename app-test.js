@@ -85,13 +85,51 @@ async function openRide(reference,silent=false){
     detail.innerHTML='<div class="ride-detail-head"><div><small>Ride</small><strong>'+escapeHtml(r.reference||reference)+'</strong></div><button class="round-icon" id="close-ride-detail" aria-label="Close">×</button></div>'+
       '<div class="ride-status-large">'+escapeHtml(r.status||"REQUESTED")+'</div>'+
       '<div class="ride-detail-grid"><div><small>Fare</small><b>₦'+escapeHtml(r.fare??0)+'</b></div><div><small>Payment</small><b>'+escapeHtml(r.paymentStatus||"PENDING")+'</b></div></div>'+
+      ((assigned && r.fareConfirmed && r.paymentStatus !== "PAID" && r.status === "DRIVER ASSIGNED") ? '<button class="primary" id="paystack-pay-button" type="button">Pay securely with Paystack</button>' : '')+
       (assigned?
         '<div class="driver-panel"><div class="driver-panel-title">Your driver</div><h3>'+escapeHtml(r.driverName||"Driver assigned")+'</h3><p>'+escapeHtml(r.driverVehicle||"Keke")+(r.driverPlateNumber?' • '+escapeHtml(r.driverPlateNumber):"")+'</p>'+
         (r.driverPhone?'<a class="driver-call" href="tel:'+encodeURIComponent(r.driverPhone)+'">Call driver</a>':"<p class=\"driver-muted\">Driver phone number not available.</p>")+
         '</div>':
         '<div class="driver-panel pending"><div class="driver-panel-title">Driver</div><p>Your ride has been requested. The dispatcher will assign a driver here.</p></div>');
     document.querySelector("#close-ride-detail")?.addEventListener("click",()=>{detail.hidden=true;stopRidePolling();activeRideReference=null});
+    document.querySelector("#paystack-pay-button")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = "Opening secure checkout...";
+      try {
+        const checkout = await api("/customer/rides/" + encodeURIComponent(reference) + "/paystack/initialize", {method:"POST", body:JSON.stringify({})});
+        if (!checkout.authorizationUrl) throw new Error("Paystack did not return a checkout URL.");
+        window.location.assign(checkout.authorizationUrl);
+      } catch (err) {
+        button.disabled = false;
+        button.textContent = "Pay securely with Paystack";
+        window.alert(err.message || "Unable to start Paystack checkout.");
+      }
+    });
   }catch(err){detail.innerHTML='<div class="ride-detail-loading">'+escapeHtml(err.message)+'</div>'}
+}
+async function handlePaystackCallback(){
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("paystack") !== "callback") return false;
+  const rideReference = params.get("ride");
+  const paymentReference = params.get("reference");
+  window.history.replaceState({}, "", window.location.pathname);
+  go("activity");
+  if (!rideReference || !paymentReference) {
+    window.alert("Paystack returned without a ride or transaction reference. Contact support before retrying.");
+    return true;
+  }
+  try {
+    await api("/customer/rides/" + encodeURIComponent(rideReference) + "/paystack/verify", {
+      method:"POST",
+      body:JSON.stringify({reference:paymentReference})
+    });
+    await openRide(rideReference);
+  } catch (err) {
+    window.alert("Payment has not been confirmed: " + (err.message || "verification failed") + ". Refresh the ride before trying again.");
+    await openRide(rideReference);
+  }
+  return true;
 }
 async function loadPreviousRides(){
   const list=document.querySelector("#previous-rides-list");
@@ -148,4 +186,4 @@ async function loadRides(){
 supabaseClient?.auth.onAuthStateChange((event)=>{
   if(event==="PASSWORD_RECOVERY")go("reset-password");
 });
-(async()=>{const s=await restoreCustomerSession();await finishGoogleSignIn();if(!currentSession&&!s&&localStorage.getItem("okaSignedIn")!=="1")go("splash");else if(currentSession&&document.querySelector(".screen.active")?.dataset.screen==="splash")go("home")})();
+(async()=>{const s=await restoreCustomerSession();await finishGoogleSignIn();const paymentCallbackHandled=await handlePaystackCallback();if(paymentCallbackHandled)return;if(!currentSession&&!s&&localStorage.getItem("okaSignedIn")!=="1")go("splash");else if(currentSession&&document.querySelector(".screen.active")?.dataset.screen==="splash")go("home")})();

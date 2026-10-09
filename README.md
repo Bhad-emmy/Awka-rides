@@ -17,8 +17,8 @@ The current V1 workflow is intentionally dispatcher-led:
 5. The dispatcher assigns an eligible driver.
 6. The assigned driver receives an SMS through Termii.
 7. The dispatcher confirms the fare.
-8. The customer pays through the official Ọka-Rides OPay account.
-9. The dispatcher verifies the payment and advances the ride.
+8. The customer pays through Paystack hosted checkout after the fare is confirmed.
+9. The backend verifies the transaction directly with Paystack; a signed webhook provides a second confirmation path.
 10. The ride moves through the operational lifecycle until completion or cancellation.
 
 ## Core Features
@@ -42,7 +42,9 @@ The current V1 workflow is intentionally dispatcher-led:
 - Eligible driver selection
 - Driver assignment
 - Fare confirmation
-- Manual payment verification
+- Paystack hosted checkout and server-side verification
+- Signed Paystack webhook handling with idempotent payment updates
+- Manual dispatcher payment recording for supported offline payments
 - Ride lifecycle controls
 - Automatic new-ride alerting
 - Browser notification support
@@ -96,8 +98,25 @@ Supabase             Termii
 | Hosting | Vercel |
 | Maps | Leaflet + OpenStreetMap |
 | Driver SMS | Termii |
-| Payment | Manual OPay |
+| Payment | Paystack hosted checkout (test mode until approved) |
 | Version control | Git + GitHub |
+
+## Paystack setup
+
+Paystack checkout is implemented using the hosted checkout flow. The secret key is read only by the FastAPI backend; it must never be placed in frontend JavaScript or committed to Git.
+
+Set these Vercel environment variables for the deployment you are testing:
+
+- `PAYSTACK_SECRET_KEY`: Paystack **test** secret key (`sk_test_...`) for initial testing.
+- `PAYSTACK_CALLBACK_URL` (optional): frontend origin, for example `https://oka-rides.vercel.app`. If omitted, the API uses the allowed request origin.
+
+No public key is required for this hosted-checkout implementation because the browser is redirected to Paystack's authorization URL. Add the webhook in Paystack **Settings → API Keys & Webhooks**:
+
+```
+https://oka-rides.vercel.app/api/payments/paystack/webhook
+```
+
+Replace the domain if the active production domain differs. The webhook validates `x-paystack-signature`, then verifies the transaction with Paystack before updating a ride. The amount must match the confirmed fare in NGN, and the transaction metadata must identify the same ride. Do not use live keys until test checkout, callback verification, and webhook tests pass.
 
 ## Supabase
 
