@@ -630,6 +630,7 @@ async function initialize() {
             csrfToken = data?.csrfToken || null;
             if (!csrfToken) throw new Error("Dispatcher security token unavailable.");
             showDispatcher();
+            await refreshGeneratedDriverId();
             await loadRides();
             await checkForNewRideRequests();
             startRideAlerts();
