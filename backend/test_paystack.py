@@ -82,7 +82,7 @@ class PaystackSplitConfigTests(unittest.TestCase):
         from backend.main_supabase import paystack_split_config
         import os
         from unittest.mock import patch
-        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "ACCT_TEST123"}, clear=False):
+        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "ACCT_TEST123", "PAYSTACK_SECRET_KEY": "sk_test_unit_test"}, clear=False):
             config = paystack_split_config()
         self.assertEqual(config["percentage_charge"], 0.15)
         self.assertEqual(round((1 - config["percentage_charge"]) * 100), 85)
