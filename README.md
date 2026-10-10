@@ -321,6 +321,28 @@ Before treating a deployment as production-ready, test at minimum:
 11. Customer activity and previous rides update within 5 seconds without resetting the page or any form in progress.
 12. Dispatcher ride status, driver offers, and payment records update without manually refreshing the page.
 
+## Paystack Driver Subaccounts (Test Mode First)
+
+Ọka-Rides uses Paystack split payments so **15% of each successful ride payment goes to the platform account and 85% goes to the assigned driver's subaccount**. The percentage is configured on each Paystack subaccount, not by a browser-supplied value. Checkout is blocked if the assigned driver has no subaccount, if the Paystack API reports the wrong subaccount, or if the subaccount's `percentage_charge` is not exactly `15`.
+
+### Test-mode setup
+
+1. Set `PAYSTACK_MODE=test` and configure a server-side Paystack **test secret key** beginning with `sk_test_`. The backend rejects a key whose prefix does not match the configured mode.
+2. In the Paystack **Test** dashboard, create a test subaccount for each driver using verified bank details and set **percentage charge = 15** (the main Ọka-Rides account's share). Verify the bank account and resolved account name before saving. Paystack subaccount creation is deliberately not automatic in the app: bank details must be verified by an authorized operator.
+3. Log in to the dispatcher API and assign the returned `ACCT_...` code to a driver:
+
+   `PATCH /api/drivers/{driver_id}/paystack-subaccount`
+
+   JSON body: `{"subaccountCode":"ACCT_..."}`
+
+   This route requires the dispatcher session and CSRF token. The code is stored server-side in `oka_rides_drivers.paystack_subaccount_code` and is not included in public driver responses.
+4. Apply migration `20261010130000_add_driver_paystack_subaccount.sql` before deploying this branch.
+5. Run a test payment with a test ride assigned to that driver. Verify Paystack's transaction details and settlement split: platform 15%, driver 85%. Check webhook and callback verification both mark the same payment as paid exactly once.
+
+The transaction initialization sends the assigned driver's `subaccount` code and records the split configuration in transaction metadata. It does not pass `transaction_charge`, because that overrides the percentage-based split with a fixed fee. The Paystack transaction's returned subaccount is checked again before the ride is marked paid.
+
+**Do not deploy this branch to production or enable live keys until test-mode subaccounts and settlement behavior have been verified.** Existing driver records have a null subaccount until an authorized dispatcher assigns one, and those drivers cannot start Paystack checkout until configured.
+
 ## Current V1 Operational Model
 
 Ọka-Rides is not an automated driver marketplace yet.
