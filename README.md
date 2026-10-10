@@ -47,6 +47,7 @@ The current V1 workflow is intentionally dispatcher-led:
 - Manual dispatcher payment recording for supported offline payments
 - Ride lifecycle controls
 - Automatic new-ride alerting
+- 5-second background refresh for customer ride lists, dispatcher queue/selected ride/payment history, driver offers/current ride, and payment records; data updates without reloading the page
 - Browser notification support
 - Repeating alert beep for new bookings
 
@@ -310,6 +311,8 @@ Before treating a deployment as production-ready, test at minimum:
 1. Customer can create a ride.
 2. Ride appears in the dispatcher queue.
 3. New ride alert appears without a manual refresh.
+4. Customer activity and previous rides update within 5 seconds without resetting the page or any form in progress.
+5. Dispatcher ride status, driver offers, and payment records update without manually refreshing the page.
 4. Dispatcher can assign an ACTIVE + VERIFIED driver.
 5. Driver SMS is sent when Termii is configured.
 6. Fare can be confirmed.
