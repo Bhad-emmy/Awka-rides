@@ -311,8 +311,6 @@ Before treating a deployment as production-ready, test at minimum:
 1. Customer can create a ride.
 2. Ride appears in the dispatcher queue.
 3. New ride alert appears without a manual refresh.
-4. Customer activity and previous rides update within 5 seconds without resetting the page or any form in progress.
-5. Dispatcher ride status, driver offers, and payment records update without manually refreshing the page.
 4. Dispatcher can assign an ACTIVE + VERIFIED driver.
 5. Driver SMS is sent when Termii is configured.
 6. Fare can be confirmed.
@@ -320,6 +318,8 @@ Before treating a deployment as production-ready, test at minimum:
 8. Ride lifecycle transitions work correctly.
 9. Unauthorized dispatcher requests are rejected.
 10. Public customer pages cannot access protected dispatcher data.
+11. Customer activity and previous rides update within 5 seconds without resetting the page or any form in progress.
+12. Dispatcher ride status, driver offers, and payment records update without manually refreshing the page.
 
 ## Current V1 Operational Model
 
