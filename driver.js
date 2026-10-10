@@ -20,5 +20,5 @@ async function rideAction(){if(!currentRide)return;const next=currentRide.status
 $("login-form").addEventListener("submit",login);$("logout").addEventListener("click",logout);$("availability-toggle").addEventListener("click",toggleAvailability);$("accept-offer").addEventListener("click",accept);$("reject-offer").addEventListener("click",reject);$("ride-action").addEventListener("click",rideAction);
 show(token?"app":"login");
 if(token){poll()} 
-pollTimer=setInterval(poll,5000);locationTimer=setInterval(updateLocation,30000);document.addEventListener("visibilitychange",()=>{if(!document.hidden)poll()});
+pollTimer=setInterval(poll,2000);locationTimer=setInterval(updateLocation,30000);document.addEventListener("visibilitychange",()=>{if(!document.hidden)poll()});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("/driver-sw.js").catch(()=>{});
