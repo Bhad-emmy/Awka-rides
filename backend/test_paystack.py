@@ -77,5 +77,32 @@ class PaystackHelperTests(unittest.TestCase):
             validate_paystack_transaction(transaction, self.ride, "OKA-TEST-123")
 
 
+class PaystackSplitConfigTests(unittest.TestCase):
+    def test_platform_commission_is_15_percent_and_driver_gets_remainder(self):
+        from backend.main_supabase import paystack_split_config
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "ACCT_TEST123"}, clear=False):
+            config = paystack_split_config()
+        self.assertEqual(config["percentage_charge"], 0.15)
+        self.assertEqual(round((1 - config["percentage_charge"]) * 100), 85)
+
+    def test_subaccount_code_must_be_configured(self):
+        import os
+        from unittest.mock import patch
+        from backend.main_supabase import paystack_split_config
+        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": ""}, clear=False):
+            with self.assertRaises(HTTPException):
+                paystack_split_config()
+
+    def test_subaccount_code_must_be_paystack_acct_code(self):
+        import os
+        from unittest.mock import patch
+        from backend.main_supabase import paystack_split_config
+        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "not-an-acct"}, clear=False):
+            with self.assertRaises(HTTPException):
+                paystack_split_config()
+
+
 if __name__ == "__main__":
     unittest.main()
