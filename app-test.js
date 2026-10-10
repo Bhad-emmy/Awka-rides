@@ -186,4 +186,28 @@ async function loadRides(){
 supabaseClient?.auth.onAuthStateChange((event)=>{
   if(event==="PASSWORD_RECOVERY")go("reset-password");
 });
+
+// Refresh customer-visible ride data without reloading the page.
+// Ride details already have their own 5-second poll; this keeps the
+// activity and completed-ride lists current when those screens are open.
+let customerRefreshInFlight = false;
+async function refreshCustomerScreen() {
+  if (document.hidden || !currentSession || customerRefreshInFlight) return;
+  const activeScreen = document.querySelector(".screen.active")?.dataset.screen;
+  if (activeScreen !== "activity" && activeScreen !== "previous-rides") return;
+  customerRefreshInFlight = true;
+  try {
+    if (activeScreen === "activity") await loadRides();
+    else await loadPreviousRides();
+  } catch (error) {
+    console.warn("Customer auto-refresh failed:", error);
+  } finally {
+    customerRefreshInFlight = false;
+  }
+}
+setInterval(refreshCustomerScreen, 5000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshCustomerScreen();
+});
+
 (async()=>{const s=await restoreCustomerSession();await finishGoogleSignIn();const paymentCallbackHandled=await handlePaystackCallback();if(paymentCallbackHandled)return;if(!currentSession&&!s&&localStorage.getItem("okaSignedIn")!=="1")go("splash");else if(currentSession&&document.querySelector(".screen.active")?.dataset.screen==="splash")go("home")})();
