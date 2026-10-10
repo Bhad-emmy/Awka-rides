@@ -91,7 +91,7 @@ class PaystackSplitConfigTests(unittest.TestCase):
         import os
         from unittest.mock import patch
         from backend.main_supabase import paystack_split_config
-        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": ""}, clear=False):
+        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "", "PAYSTACK_SECRET_KEY": "sk_test_unit_test"}, clear=False):
             with self.assertRaises(HTTPException):
                 paystack_split_config()
 
@@ -99,7 +99,7 @@ class PaystackSplitConfigTests(unittest.TestCase):
         import os
         from unittest.mock import patch
         from backend.main_supabase import paystack_split_config
-        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "not-an-acct"}, clear=False):
+        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "not-an-acct", "PAYSTACK_SECRET_KEY": "sk_test_unit_test"}, clear=False):
             with self.assertRaises(HTTPException):
                 paystack_split_config()
 
