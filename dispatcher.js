@@ -179,10 +179,12 @@ async function refreshDispatcherDashboard() {
 
         const updatedRide = await apiRequest(`/rides/${encodeURIComponent(selectedId)}`);
         if (state.selectedRide?.id !== selectedId) return;
-        const statusChanged = state.selectedRide.status !== updatedRide.status;
-        const driverChanged = state.selectedRide.driverId !== updatedRide.driverId;
+        const previousRide = state.selectedRide;
+        const statusChanged = previousRide.status !== updatedRide.status;
+        const driverChanged = previousRide.driverId !== updatedRide.driverId;
+        const rideChanged = JSON.stringify(previousRide) !== JSON.stringify(updatedRide);
         state.selectedRide = updatedRide;
-        renderDetails();
+        if (rideChanged) renderDetails();
 
         const work = [loadRidePaymentRecords(selectedId)];
         if (updatedRide.status === "REQUESTED" && (statusChanged || driverChanged || !state.selectedDriverId)) {
