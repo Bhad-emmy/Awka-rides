@@ -69,8 +69,10 @@ let ridePollTimer=null;
 let activeRideReference=null;
 let activeRideStatus=null;
 
-function stopRidePolling(){if(ridePollTimer){clearInterval(ridePollTimer);ridePollTimer=null}}
-function startRidePolling(reference){activeRideReference=reference;stopRidePolling();ridePollTimer=setInterval(async()=>{try{const r=await api("/customer/rides/"+encodeURIComponent(reference));activeRideStatus=r.status;if(["COMPLETED","CANCELLED"].includes(r.status)){stopRidePolling()}await openRide(reference,true)}catch{}} ,5000)}
+const CUSTOMER_RIDE_POLL_MS = 15000;
+let ridePollInFlight = false;
+function stopRidePolling(){if(ridePollTimer){clearInterval(ridePollTimer);ridePollTimer=null}ridePollInFlight=false}
+function startRidePolling(reference){activeRideReference=reference;stopRidePolling();ridePollTimer=setInterval(async()=>{if(document.hidden||ridePollInFlight||activeRideReference!==reference)return;ridePollInFlight=true;try{await openRide(reference,true)}catch(error){console.warn("Customer ride detail refresh failed:",error)}finally{ridePollInFlight=false}},CUSTOMER_RIDE_POLL_MS)}
 
 async function openRide(reference,silent=false){
   const detail=document.querySelector("#ride-detail");
@@ -211,9 +213,18 @@ async function refreshCustomerScreen() {
     customerRefreshInFlight = false;
   }
 }
-setInterval(refreshCustomerScreen, 5000);
+// Poll only while the customer is viewing ride history. A 15-second interval
+// keeps status changes visible without flooding the API; overlapping requests
+// are blocked and hidden tabs are paused.
+const customerRefreshTimer = setInterval(refreshCustomerScreen, 15000);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshCustomerScreen();
+  if (!document.hidden) {
+    refreshCustomerScreen();
+    if (activeRideReference) {
+      if (!ridePollTimer) startRidePolling(activeRideReference);
+      else if (!ridePollInFlight) openRide(activeRideReference, true);
+    }
+  }
 });
 
 (async()=>{const s=await restoreCustomerSession();await finishGoogleSignIn();const paymentCallbackHandled=await handlePaystackCallback();if(paymentCallbackHandled)return;if(!currentSession&&!s&&localStorage.getItem("okaSignedIn")!=="1")go("splash");else if(currentSession&&document.querySelector(".screen.active")?.dataset.screen==="splash")go("home")})();
