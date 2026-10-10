@@ -365,7 +365,8 @@ function renderDetails() {
         detail("Notes", ride.notes, true), detail("Driver ID", ride.driverId), detail("Driver name", ride.driverName),
         detail("Driver phone", ride.driverPhone), detail("Driver vehicle", ride.driverVehicle), detail("Driver plate", ride.driverPlateNumber),
         detail("Fare", money(ride.fare)), detail("Fare confirmed", ride.fareConfirmed ? "Yes" : "No"),
-        detail("Payment status", ride.paymentStatus), detail("Payment reference", ride.paymentReference)
+        detail("Payment status", ride.paymentStatus), detail("Payment method", ride.paymentMethod),
+        detail("Payment reference", ride.paymentReference), detail("Payment paid at", formatDate(ride.paymentPaidAt))
     ].join("");
     $("#address-summary").textContent = `${display(ride.pickup)} → ${display(ride.destination)}`;
     $("#fare-input").value = ride.fare ?? "";
