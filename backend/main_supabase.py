@@ -2248,9 +2248,14 @@ async def verify_payment(
 
     fields = {"payment_status": payment.paymentStatus}
     if payment.paymentStatus == "PAID":
+        # Persist the ledger first; retrying is safe by payment reference.
+        await record_payment_ledger(
+            ride, payment.paymentReference.strip(), naira_to_kobo(ride.get("fare")),
+            "OFFLINE", "PAID", {"recorded_by": "dispatcher"},
+        )
         fields.update({
             "payment_reference": payment.paymentReference.strip(),
-            "payment_method": None,
+            "payment_method": "OFFLINE",
             "status": "PAID",
         })
     else:
@@ -2266,11 +2271,6 @@ async def verify_payment(
     if not payment_rows:
         raise HTTPException(status_code=409, detail="Ride payment state changed. Refresh and try again.")
 
-    if payment.paymentStatus == "PAID":
-        await record_payment_ledger(
-            ride, payment.paymentReference.strip(), naira_to_kobo(ride.get("fare")),
-            "OFFLINE", "PAID", {"recorded_by": "dispatcher"},
-        )
     await write_audit_log(
         "dispatcher", _, "ride.payment_updated", "ride", ride_id,
         {"payment_status": payment.paymentStatus, "method": "OFFLINE"},
