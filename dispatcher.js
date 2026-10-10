@@ -334,6 +334,29 @@ function formatDate(value) {
     return Number.isNaN(date.getTime()) ? display(value) : date.toLocaleString();
 }
 
+async function loadRidePaymentRecords(rideId) {
+    const panel = $("#ride-payment-records");
+    if (!panel) return;
+    panel.textContent = "Loading payment records…";
+    try {
+        const data = await apiRequest(`/rides/${encodeURIComponent(rideId)}/payment-records`);
+        const payments = data.payments || [];
+        if (!payments.length) {
+            panel.textContent = "No ledger entries for this ride yet.";
+            return;
+        }
+        panel.innerHTML = '<h4>Payment history</h4>' + payments.map((payment) =>
+            '<div class="detail" style="margin:6px 0"><strong>' + html(payment.status) + ' · ' + html(payment.method) +
+            '</strong><br>Amount: ' + html(money(Number(payment.amount_kobo || 0) / 100)) +
+            '<br>Reference: ' + html(payment.reference) +
+            '<br>Recorded: ' + html(formatDate(payment.created_at)) +
+            '<br>Paid at: ' + html(formatDate(payment.paid_at)) + '</div>'
+        ).join("");
+    } catch (error) {
+        panel.textContent = "Unable to load payment history: " + error.message;
+    }
+}
+
 async function selectRide(rideId) {
     try {
         const ride = await apiRequest(`/rides/${encodeURIComponent(rideId)}`);
@@ -341,7 +364,7 @@ async function selectRide(rideId) {
         state.selectedDriverId = null;
         renderRideList();
         renderDetails();
-        await loadDrivers();
+        await Promise.all([loadDrivers(), loadRidePaymentRecords(ride.id)]);
     } catch (error) { setFeedback(error.message); }
 }
 
@@ -365,7 +388,8 @@ function renderDetails() {
         detail("Notes", ride.notes, true), detail("Driver ID", ride.driverId), detail("Driver name", ride.driverName),
         detail("Driver phone", ride.driverPhone), detail("Driver vehicle", ride.driverVehicle), detail("Driver plate", ride.driverPlateNumber),
         detail("Fare", money(ride.fare)), detail("Fare confirmed", ride.fareConfirmed ? "Yes" : "No"),
-        detail("Payment status", ride.paymentStatus), detail("Payment reference", ride.paymentReference)
+        detail("Payment status", ride.paymentStatus), detail("Payment method", ride.paymentMethod),
+        detail("Payment reference", ride.paymentReference)
     ].join("");
     $("#address-summary").textContent = `${display(ride.pickup)} → ${display(ride.destination)}`;
     $("#fare-input").value = ride.fare ?? "";

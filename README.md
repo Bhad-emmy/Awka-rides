@@ -118,6 +118,14 @@ https://oka-rides.vercel.app/api/payments/paystack/webhook
 
 Replace the domain if the active production domain differs. The webhook validates `x-paystack-signature`, then verifies the transaction with Paystack before updating a ride. The amount must match the confirmed fare in NGN, and the transaction metadata must identify the same ride. Do not use live keys until test checkout, callback verification, and webhook tests pass.
 
+## Payment records ledger
+
+Verified Paystack payments and dispatcher-verified offline payments are stored in `oka_rides_payment_records`, with a unique payment reference, ride link, amount in kobo, currency, method, status, provider metadata, and timestamps. The dispatcher can review the ledger at `/payment-records.html`; each ride also displays its payment method, reference, and payment timestamp.
+
+**Required before deploying the payment-ledger code:** run the SQL migration in `supabase/migrations/20261010090000_payment_records_ledger.sql` in the Supabase SQL Editor. The backend uses the service-role key; row-level security is enabled and no public table policies are added. Do not deploy this change before applying the migration.
+
+Paystack webhook/callback confirmation remains server-verified. Repeated notifications use the transaction reference to avoid duplicate ledger rows. Manual dispatcher payment recording is explicitly treated as an offline payment and cannot overwrite a ride already marked as a Paystack payment.
+
 ## Supabase
 
 Ọka-Rides uses the **MEKA LOGIC** Supabase project.

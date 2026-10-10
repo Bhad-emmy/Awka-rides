@@ -322,6 +322,7 @@ async def supabase_request(
     params: dict[str, str] | None = None,
     json_body: dict | list | None = None,
     action_description: str = "database request",
+    prefer: str = "return=representation",
 ):
     url, service_key = supabase_settings()
     try:
@@ -331,7 +332,7 @@ async def supabase_request(
                 f"{url}/rest/v1/{table}",
                 headers={
                     **supabase_headers(service_key),
-                    "Prefer": "return=representation",
+                    "Prefer": prefer,
                 },
                 params=params,
                 json=json_body,
@@ -958,6 +959,8 @@ def ride_representation(record: dict) -> dict:
         "fareConfirmed": record.get("fare_confirmed", False),
         "paymentStatus": record.get("payment_status"),
         "paymentReference": record.get("payment_reference"),
+        "paymentMethod": record.get("payment_method"),
+        "paymentPaidAt": record.get("payment_paid_at"),
         "pickupLatitude": record.get("pickup_latitude"),
         "pickupLongitude": record.get("pickup_longitude"),
         "destinationLatitude": record.get("destination_latitude"),
@@ -1407,6 +1410,23 @@ async def list_rides(
         action_description="ride list",
     )
     return {"rides": [ride_representation(row) for row in rows]}
+
+
+@app.get("/api/payment-records")
+async def list_payment_records(_: str = Depends(require_dispatcher_session)):
+    rows = await supabase_request("GET", "oka_rides_payment_records",
+        params={"select": "*", "order": "created_at.desc", "limit": "500"},
+        action_description="payment records list")
+    return {"payments": rows}
+
+
+@app.get("/api/rides/{ride_id}/payment-records")
+async def list_ride_payment_records(ride_id: str = Path(min_length=1), _: str = Depends(require_dispatcher_session)):
+    await get_ride_record(ride_id)
+    rows = await supabase_request("GET", "oka_rides_payment_records",
+        params={"select": "*", "ride_id": f"eq.{ride_id}", "order": "created_at.desc", "limit": "100"},
+        action_description="ride payment records list")
+    return {"payments": rows}
 
 
 @app.get("/api/rides/{ride_id}")
@@ -2223,12 +2243,19 @@ async def verify_payment(
         raise HTTPException(status_code=409, detail="Payment requires a confirmed fare.")
     if payment.paymentStatus == "PAID" and not payment.paymentReference.strip():
         raise HTTPException(status_code=422, detail="Payment reference is required for PAID payments.")
+    if payment.paymentStatus == "PAID" and ride.get("payment_method") == "PAYSTACK":
+        raise HTTPException(status_code=409, detail="Paystack payments must be confirmed by Paystack verification, not recorded manually.")
 
     fields = {"payment_status": payment.paymentStatus}
     if payment.paymentStatus == "PAID":
+        # Persist the ledger first; retrying is safe by payment reference.
+        await record_payment_ledger(
+            ride, payment.paymentReference.strip(), naira_to_kobo(ride.get("fare")),
+            "OFFLINE", "PAID", {"recorded_by": "dispatcher"},
+        )
         fields.update({
             "payment_reference": payment.paymentReference.strip(),
-            "payment_method": None,
+            "payment_method": "OPAY",
             "status": "PAID",
         })
     else:
@@ -2246,7 +2273,7 @@ async def verify_payment(
 
     await write_audit_log(
         "dispatcher", _, "ride.payment_updated", "ride", ride_id,
-        {"payment_status": payment.paymentStatus},
+        {"payment_status": payment.paymentStatus, "method": "OFFLINE"},
     )
     return {
         "success": True,
@@ -2338,32 +2365,79 @@ def validate_paystack_transaction(transaction: dict, ride: dict, reference: str)
         raise HTTPException(status_code=409, detail="Payment reference is no longer active for this ride.")
 
 
+async def record_payment_ledger(ride: dict, reference: str, amount_kobo: int, method: str, status: str, provider_data: dict | None = None) -> dict:
+    """Persist a payment record keyed by its unique provider/manual reference."""
+    existing = await supabase_request(
+        "GET", "oka_rides_payment_records",
+        params={"select": "*", "reference": f"eq.{reference}", "limit": "1"},
+        action_description="payment record lookup",
+    )
+    payload = {
+        "ride_id": str(ride.get("id")),
+        "ride_reference": str(ride.get("reference") or ""),
+        "reference": reference,
+        "amount_kobo": int(amount_kobo),
+        "currency": "NGN",
+        "method": method,
+        "status": status,
+        "provider": "paystack" if method == "PAYSTACK" else "offline",
+        "provider_data": provider_data or {},
+        "paid_at": datetime.now(timezone.utc).isoformat() if status == "PAID" else None,
+    }
+    if existing:
+        record = existing[0]
+        if str(record.get("ride_id")) != str(ride.get("id")) or int(record.get("amount_kobo") or 0) != int(amount_kobo):
+            raise HTTPException(status_code=409, detail="Payment reference is already linked to a different payment.")
+        if record.get("status") == "PAID" and status != "PAID":
+            return record
+        rows = await supabase_request("PATCH", "oka_rides_payment_records",
+            params={"id": f"eq.{record.get('id')}"}, json_body=payload,
+            action_description="payment record update")
+        return rows[0] if rows else record
+    try:
+        rows = await supabase_request("POST", "oka_rides_payment_records", json_body=payload,
+            action_description="payment record insert")
+        return rows[0] if rows else payload
+    except HTTPException:
+        # If simultaneous webhook/callback requests race on the unique reference,
+        # accept the record created by the other request only if it matches.
+        existing = await supabase_request("GET", "oka_rides_payment_records",
+            params={"select": "*", "reference": f"eq.{reference}", "limit": "1"},
+            action_description="payment record retry lookup")
+        if existing and str(existing[0].get("ride_id")) == str(ride.get("id")) and int(existing[0].get("amount_kobo") or 0) == int(amount_kobo):
+            return existing[0]
+        raise
+
+
 async def finalize_paystack_payment(ride: dict, reference: str, transaction: dict) -> dict:
     validate_paystack_transaction(transaction, ride, reference)
+    amount_kobo = int(transaction.get("amount"))
     if paystack_payment_already_applied(ride, reference):
+        await record_payment_ledger(ride, reference, amount_kobo, "PAYSTACK", "PAID", {
+            "transaction_id": transaction.get("id"), "channel": transaction.get("channel"),
+        })
         return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
     if ride.get("status") != "DRIVER ASSIGNED" or ride.get("fare_confirmed") is not True:
         raise HTTPException(status_code=409, detail="Payment can only be applied to a ride with a confirmed fare and assigned driver.")
+    await record_payment_ledger(ride, reference, amount_kobo, "PAYSTACK", "PAID", {
+        "transaction_id": transaction.get("id"), "channel": transaction.get("channel"),
+    })
     rows = await supabase_request(
-        "PATCH",
-        SUPABASE_TABLE_RIDES,
-        params={
-            "id": f"eq.{ride.get('id')}",
-            "status": "eq.DRIVER ASSIGNED",
-            "payment_status": "neq.PAID",
-            "payment_reference": f"eq.{reference}",
-        },
-        json_body={"payment_status": "PAID", "payment_reference": reference, "payment_method": "PAYSTACK", "status": "PAID"},
+        "PATCH", SUPABASE_TABLE_RIDES,
+        params={"id": f"eq.{ride.get('id')}", "status": "eq.DRIVER ASSIGNED",
+                "payment_status": "neq.PAID", "payment_reference": f"eq.{reference}"},
+        json_body={"payment_status": "PAID", "payment_reference": reference,
+                   "payment_method": "PAYSTACK", "status": "PAID"},
         action_description="Paystack payment confirmation",
     )
     if not rows:
         current = await get_ride_record(str(ride.get("id")))
         if current.get("payment_status") == "PAID" and current.get("status") == "PAID" and current.get("payment_reference") == reference:
             return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
-        raise HTTPException(status_code=409, detail="Ride payment state changed. Refresh and try again.")
-    await write_audit_log("paystack", "paystack", "ride.paystack_payment_confirmed", "ride", str(ride.get("id")), {"reference": reference, "amount": transaction.get("amount")})
+        raise HTTPException(status_code=409, detail="Payment record saved but ride state changed. Dispatcher reconciliation is required.")
+    await write_audit_log("paystack", "paystack", "ride.paystack_payment_confirmed", "ride",
+                          str(ride.get("id")), {"reference": reference, "amount": transaction.get("amount")})
     return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
-
 
 @app.post("/api/customer/rides/{reference}/paystack/initialize")
 async def initialize_paystack_payment(
