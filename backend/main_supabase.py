@@ -25,6 +25,7 @@ SUPABASE_TABLE_DRIVERS = "oka_rides_drivers"
 SUPABASE_TABLE_CUSTOMERS = "oka_rides_customers"
 SUPABASE_TABLE_AUDIT_LOGS = "oka_rides_audit_logs"
 SUPABASE_TABLE_CUSTOMER_SESSIONS = "oka_rides_customer_sessions"
+PAYSTACK_PLATFORM_COMMISSION_PERCENT = 15
 
 app = FastAPI(title="Awka Rides API")
 
@@ -246,6 +247,10 @@ class PaymentUpdate(BaseModel):
 
 class PaystackVerifyRequest(BaseModel):
     reference: str = Field(min_length=1, max_length=120)
+
+
+class PaystackSubaccountUpdate(BaseModel):
+    subaccountCode: str = Field(min_length=6, max_length=80)
 
 
 class RideStatusUpdate(BaseModel):
@@ -2283,11 +2288,43 @@ async def verify_payment(
     }
 
 
+def paystack_mode() -> str:
+    mode = os.getenv("PAYSTACK_MODE", "test").strip().lower()
+    if mode not in {"test", "live"}:
+        raise HTTPException(status_code=503, detail="PAYSTACK_MODE must be either 'test' or 'live'.")
+    return mode
+
+
 def paystack_secret_key() -> str:
     key = os.getenv("PAYSTACK_SECRET_KEY", "").strip()
     if not key:
         raise HTTPException(status_code=503, detail="Paystack is not configured on the server.")
+    mode = paystack_mode()
+    expected_prefix = "sk_test_" if mode == "test" else "sk_live_"
+    if not key.startswith(expected_prefix):
+        raise HTTPException(status_code=503, detail=f"PAYSTACK_MODE={mode} requires a matching {expected_prefix} secret key.")
     return key
+
+
+def validate_paystack_subaccount(subaccount: dict, expected_code: str) -> None:
+    """Require the assigned driver's Paystack subaccount to route 15% to the platform."""
+    actual_code = str(subaccount.get("subaccount_code") or "")
+    if actual_code != expected_code:
+        raise HTTPException(status_code=409, detail="Paystack returned a different subaccount than the driver's configured account.")
+    active = subaccount.get("active", subaccount.get("is_active"))
+    if active not in (True, 1):
+        raise HTTPException(status_code=409, detail="The driver's Paystack subaccount is inactive or its status could not be confirmed.")
+    if str(subaccount.get("domain") or "").lower() != paystack_mode():
+        raise HTTPException(status_code=409, detail="The driver's Paystack subaccount belongs to a different Paystack environment.")
+    try:
+        platform_percentage = float(subaccount.get("percentage_charge"))
+    except (TypeError, ValueError):
+        platform_percentage = -1
+    if platform_percentage != PAYSTACK_PLATFORM_COMMISSION_PERCENT:
+        raise HTTPException(
+            status_code=409,
+            detail="The driver's Paystack subaccount must be configured for a 15% platform commission in test mode.",
+        )
 
 
 def naira_to_kobo(amount) -> int:
@@ -2349,7 +2386,9 @@ def paystack_expected_amount_kobo(ride: dict) -> int:
         raise HTTPException(status_code=409, detail="A valid confirmed fare is required.") from exc
 
 
-def validate_paystack_transaction(transaction: dict, ride: dict, reference: str) -> None:
+def validate_paystack_transaction(transaction: dict, ride: dict, reference: str, expected_subaccount_code: str | None = None) -> None:
+    if str(transaction.get("domain") or "").lower() != paystack_mode():
+        raise HTTPException(status_code=409, detail="Paystack transaction belongs to a different payment environment.")
     if transaction.get("status") != "success":
         raise HTTPException(status_code=409, detail="Paystack has not confirmed a successful payment.")
     if str(transaction.get("reference") or "") != reference:
@@ -2361,6 +2400,14 @@ def validate_paystack_transaction(transaction: dict, ride: dict, reference: str)
     metadata = transaction.get("metadata") or {}
     if str(metadata.get("ride_id") or "") != str(ride.get("id") or ""):
         raise HTTPException(status_code=409, detail="Paystack transaction is not linked to this ride.")
+    if expected_subaccount_code is not None:
+        subaccount = transaction.get("subaccount")
+        actual_subaccount_code = (
+            str(subaccount.get("subaccount_code") or "") if isinstance(subaccount, dict)
+            else str(subaccount or "")
+        )
+        if actual_subaccount_code != expected_subaccount_code:
+            raise HTTPException(status_code=409, detail="Paystack transaction was not split to the assigned driver's configured subaccount.")
     if str(ride.get("payment_reference") or "") != reference:
         raise HTTPException(status_code=409, detail="Payment reference is no longer active for this ride.")
 
@@ -2410,18 +2457,27 @@ async def record_payment_ledger(ride: dict, reference: str, amount_kobo: int, me
 
 
 async def finalize_paystack_payment(ride: dict, reference: str, transaction: dict) -> dict:
-    validate_paystack_transaction(transaction, ride, reference)
+    driver_id = str(ride.get("driver_id") or "").strip()
+    if not driver_id:
+        raise HTTPException(status_code=409, detail="This ride has no assigned driver for split settlement.")
+    driver = await get_driver_record(driver_id)
+    subaccount_code = str(driver.get("paystack_subaccount_code") or "").strip()
+    if not subaccount_code:
+        raise HTTPException(status_code=409, detail="The assigned driver's Paystack subaccount is not configured.")
+    validate_paystack_transaction(transaction, ride, reference, subaccount_code)
     amount_kobo = int(transaction.get("amount"))
+    split_audit = {
+        "transaction_id": transaction.get("id"),
+        "channel": transaction.get("channel"),
+        "subaccount_code": subaccount_code,
+        "platform_commission_percent": PAYSTACK_PLATFORM_COMMISSION_PERCENT,
+    }
     if paystack_payment_already_applied(ride, reference):
-        await record_payment_ledger(ride, reference, amount_kobo, "PAYSTACK", "PAID", {
-            "transaction_id": transaction.get("id"), "channel": transaction.get("channel"),
-        })
+        await record_payment_ledger(ride, reference, amount_kobo, "PAYSTACK", "PAID", split_audit)
         return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
     if ride.get("status") != "DRIVER ASSIGNED" or ride.get("fare_confirmed") is not True:
         raise HTTPException(status_code=409, detail="Payment can only be applied to a ride with a confirmed fare and assigned driver.")
-    await record_payment_ledger(ride, reference, amount_kobo, "PAYSTACK", "PAID", {
-        "transaction_id": transaction.get("id"), "channel": transaction.get("channel"),
-    })
+    await record_payment_ledger(ride, reference, amount_kobo, "PAYSTACK", "PAID", split_audit)
     rows = await supabase_request(
         "PATCH", SUPABASE_TABLE_RIDES,
         params={"id": f"eq.{ride.get('id')}", "status": "eq.DRIVER ASSIGNED",
@@ -2451,6 +2507,18 @@ async def initialize_paystack_payment(
     if ride.get("payment_status") == "PAID":
         raise HTTPException(status_code=409, detail="This ride is already paid.")
     amount = paystack_expected_amount_kobo(ride)
+    driver_id = str(ride.get("driver_id") or "").strip()
+    if not driver_id:
+        raise HTTPException(status_code=409, detail="A driver must be assigned before split payment can start.")
+    driver = await get_driver_record(driver_id)
+    subaccount_code = str(driver.get("paystack_subaccount_code") or "").strip()
+    if not subaccount_code:
+        raise HTTPException(status_code=409, detail="The assigned driver does not have a Paystack test subaccount configured yet.")
+    if not subaccount_code.startswith("ACCT_") or not subaccount_code[5:].isalnum():
+        raise HTTPException(status_code=409, detail="The assigned driver's Paystack subaccount code is invalid.")
+    subaccount = await paystack_api("GET", f"/subaccount/{subaccount_code}")
+    validate_paystack_subaccount(subaccount, subaccount_code)
+
     email = str(ride.get("email") or "").strip()
     if not email:
         customer = await get_customer_record(customer_id)
@@ -2481,7 +2549,14 @@ async def initialize_paystack_payment(
             "currency": "NGN",
             "reference": payment_reference,
             "callback_url": callback_url,
-            "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference},
+            "subaccount": subaccount_code,
+            "metadata": {
+                "ride_id": str(ride.get("id")),
+                "ride_reference": reference,
+                "driver_id": driver_id,
+                "subaccount_code": subaccount_code,
+                "platform_commission_percent": PAYSTACK_PLATFORM_COMMISSION_PERCENT,
+            },
         })
     except HTTPException:
         await supabase_request(
@@ -2494,7 +2569,13 @@ async def initialize_paystack_payment(
     authorization_url = checkout.get("authorization_url")
     if not authorization_url or not str(authorization_url).startswith("https://checkout.paystack.com/"):
         raise HTTPException(status_code=502, detail="Paystack did not return a valid checkout URL.")
-    return {"authorizationUrl": authorization_url, "reference": payment_reference, "amount": amount, "currency": "NGN"}
+    return {
+        "authorizationUrl": authorization_url,
+        "reference": payment_reference,
+        "amount": amount,
+        "currency": "NGN",
+        "split": {"platformCommissionPercent": PAYSTACK_PLATFORM_COMMISSION_PERCENT, "driverPercent": 100 - PAYSTACK_PLATFORM_COMMISSION_PERCENT},
+    }
 
 
 @app.post("/api/customer/rides/{reference}/paystack/verify")
@@ -2544,6 +2625,34 @@ async def paystack_webhook(request: Request):
     transaction = await paystack_api("GET", f"/transaction/verify/{reference}")
     await finalize_paystack_payment(ride, reference, transaction)
     return {"received": True}
+
+
+@app.patch("/api/drivers/{driver_id}/paystack-subaccount")
+async def set_driver_paystack_subaccount(
+    update: PaystackSubaccountUpdate,
+    driver_id: str = Path(min_length=1),
+    dispatcher_username: str = Depends(require_dispatcher_session),
+):
+    """Assign a Paystack subaccount code created and verified in the current mode's dashboard."""
+    code = update.subaccountCode.strip()
+    # Validate the provider's account-code format before storing it. Domain and
+    # percentage are checked against Paystack itself at checkout initialization.
+    if not code.startswith("ACCT_") or not code[5:].isalnum():
+        raise HTTPException(status_code=422, detail="A valid Paystack subaccount code beginning with ACCT_ is required.")
+    await get_driver_record(driver_id)
+    rows = await supabase_request(
+        "PATCH", SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}"},
+        json_body={"paystack_subaccount_code": code},
+        action_description="driver Paystack subaccount assignment",
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Driver not found.")
+    await write_audit_log(
+        "dispatcher", dispatcher_username, "driver.paystack_subaccount_assigned", "driver", driver_id,
+        {"subaccount_code": code, "paystack_mode": paystack_mode()},
+    )
+    return {"message": "Paystack subaccount assigned", "driverId": driver_id, "subaccountCode": code, "paystackMode": paystack_mode()}
 
 
 @app.patch("/api/rides/{ride_id}/status")
