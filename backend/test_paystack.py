@@ -10,6 +10,7 @@ from backend.main_supabase import (
     paystack_payment_already_applied,
     paystack_signature_is_valid,
     validate_paystack_transaction,
+    paystack_split_config,
 )
 
 
@@ -78,30 +79,20 @@ class PaystackHelperTests(unittest.TestCase):
 
 
 class PaystackSplitConfigTests(unittest.TestCase):
-    def test_platform_commission_is_15_percent_and_driver_gets_remainder(self):
-        from backend.main_supabase import paystack_split_config
-        import os
-        from unittest.mock import patch
-        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "ACCT_TEST123", "PAYSTACK_SECRET_KEY": "sk_test_unit_test"}, clear=False):
-            config = paystack_split_config()
+    def test_platform_keeps_15_percent_driver_gets_85_and_account_bears_fees(self):
+        config = paystack_split_config({"paystack_subaccount_code": "ACCT_DRIVER123"})
         self.assertEqual(config["percentage_charge"], 0.15)
         self.assertEqual(round((1 - config["percentage_charge"]) * 100), 85)
+        self.assertEqual(config["subaccount"], "ACCT_DRIVER123")
+        self.assertEqual(config["bearer"], "account")
 
-    def test_subaccount_code_must_be_configured(self):
-        import os
-        from unittest.mock import patch
-        from backend.main_supabase import paystack_split_config
-        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "", "PAYSTACK_SECRET_KEY": "sk_test_unit_test"}, clear=False):
-            with self.assertRaises(HTTPException):
-                paystack_split_config()
+    def test_missing_driver_subaccount_is_rejected(self):
+        with self.assertRaises(HTTPException):
+            paystack_split_config({})
 
-    def test_subaccount_code_must_be_paystack_acct_code(self):
-        import os
-        from unittest.mock import patch
-        from backend.main_supabase import paystack_split_config
-        with patch.dict(os.environ, {"PAYSTACK_OKA_SUBACCOUNT_CODE": "not-an-acct", "PAYSTACK_SECRET_KEY": "sk_test_unit_test"}, clear=False):
-            with self.assertRaises(HTTPException):
-                paystack_split_config()
+    def test_invalid_driver_subaccount_is_rejected(self):
+        with self.assertRaises(HTTPException):
+            paystack_split_config({"paystack_subaccount_code": "not-an-acct"})
 
 
 if __name__ == "__main__":
