@@ -20,7 +20,30 @@
 const money=kobo=>'₦'+(Number(kobo||0)/100).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=v=>{if(!v)return '—';const d=new Date(v);return Number.isNaN(d.getTime())?esc(v):esc(d.toLocaleString())};
-async function load(){const msg=document.querySelector('#message'),table=document.querySelector('#table');msg.hidden=false;msg.textContent='Loading payment records…';table.hidden=true;try{const res=await fetch('/api/payment-records',{credentials:'include'});if(res.status===401){location.href='/dispatcher.html';return}const body=await res.json();if(!res.ok)throw new Error(body.detail||'Could not load payment records');const payments=body.payments||[];document.querySelector('#record-count').textContent=payments.length;const paid=payments.filter(p=>p.status==='PAID');document.querySelector('#paid-count').textContent=paid.length;document.querySelector('#paid-total').textContent=money(paid.reduce((sum,p)=>sum+Number(p.amount_kobo||0),0));document.querySelector('#rows').innerHTML=payments.map(p=>'<tr><td>'+date(p.created_at)+'</td><td><a href="/dispatcher.html">'+esc(p.ride_reference)+'</a></td><td>'+esc(p.method)+'</td><td>'+money(p.amount_kobo)+'</td><td><span class="status '+esc(p.status)+'">'+esc(p.status)+'</span></td><td><code>'+esc(p.reference)+'</code></td><td>'+date(p.paid_at)+'</td></tr>').join('');msg.textContent=payments.length?'Showing '+payments.length+' payment records.':'No payment records have been recorded yet.';table.hidden=!payments.length}catch(e){msg.textContent=e.message||'Unable to load payment records.'}}
-document.querySelector('#refresh').addEventListener('click',load);load();
+let paymentLoadInFlight=false;
+async function load(silent=false){
+ if(paymentLoadInFlight||document.hidden&&silent)return;
+ paymentLoadInFlight=true;
+ const msg=document.querySelector('#message'),table=document.querySelector('#table');
+ if(!silent){msg.hidden=false;msg.textContent='Loading payment records…';if(!document.querySelector('#rows').children.length)table.hidden=true}
+ try{
+  const res=await fetch('/api/payment-records',{credentials:'include'});
+  if(res.status===401){location.href='/dispatcher.html';return}
+  const body=await res.json();
+  if(!res.ok)throw new Error(body.detail||'Could not load payment records');
+  const payments=body.payments||[];
+  document.querySelector('#record-count').textContent=payments.length;
+  const paid=payments.filter(p=>p.status==='PAID');
+  document.querySelector('#paid-count').textContent=paid.length;
+  document.querySelector('#paid-total').textContent=money(paid.reduce((sum,p)=>sum+Number(p.amount_kobo||0),0));
+  document.querySelector('#rows').innerHTML=payments.map(p=>'<tr><td>'+date(p.created_at)+'</td><td><a href="/dispatcher.html">'+esc(p.ride_reference)+'</a></td><td>'+esc(p.method)+'</td><td>'+money(p.amount_kobo)+'</td><td><span class="status '+esc(p.status)+'">'+esc(p.status)+'</span></td><td><code>'+esc(p.reference)+'</code></td><td>'+date(p.paid_at)+'</td></tr>').join('');
+  msg.textContent=payments.length?'Showing '+payments.length+' payment records.':'No payment records have been recorded yet.';
+  msg.hidden=false;table.hidden=!payments.length;
+ }catch(e){if(!silent||!document.querySelector('#rows').children.length){msg.textContent=e.message||'Unable to load payment records.';msg.hidden=false}}
+ finally{paymentLoadInFlight=false}
+}
+document.querySelector('#refresh').addEventListener('click',()=>load());load();
+setInterval(()=>load(true),5000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)load(true)});
 </script>
 </body></html>
