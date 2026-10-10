@@ -2311,8 +2311,9 @@ def validate_paystack_subaccount(subaccount: dict, expected_code: str) -> None:
     actual_code = str(subaccount.get("subaccount_code") or "")
     if actual_code != expected_code:
         raise HTTPException(status_code=409, detail="Paystack returned a different subaccount than the driver's configured account.")
-    if subaccount.get("active", subaccount.get("is_active")) in (False, 0):
-        raise HTTPException(status_code=409, detail="The driver's Paystack subaccount is inactive.")
+    active = subaccount.get("active", subaccount.get("is_active"))
+    if active not in (True, 1):
+        raise HTTPException(status_code=409, detail="The driver's Paystack subaccount is inactive or its status could not be confirmed.")
     if str(subaccount.get("domain") or "").lower() != paystack_mode():
         raise HTTPException(status_code=409, detail="The driver's Paystack subaccount belongs to a different Paystack environment.")
     try:
