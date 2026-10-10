@@ -2362,6 +2362,31 @@ async def paystack_api(method: str, path: str, payload: dict | None = None) -> d
     return result.get("data") or {}
 
 
+async def validate_paystack_subaccount_for_current_key(subaccount_code: str) -> dict:
+    """Confirm the subaccount is accessible and active under the configured Paystack key.
+
+    Paystack test/live keys are isolated. Looking up the subaccount with the same
+    key used to initialize the transaction prevents sending a split to a code from
+    the other environment.
+    """
+    code = str(subaccount_code or "").strip()
+    if not code.startswith("ACCT_"):
+        raise HTTPException(status_code=409, detail="Driver Paystack subaccount code is invalid.")
+    try:
+        subaccount = await paystack_api("GET", f"/subaccount/{code}")
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Driver Paystack subaccount could not be verified with the configured Paystack key. Check that test keys use a test subaccount and live keys use a live subaccount.",
+        ) from exc
+    returned_code = str(subaccount.get("subaccount_code") or subaccount.get("code") or "").strip()
+    if returned_code and returned_code != code:
+        raise HTTPException(status_code=409, detail="Paystack returned a different subaccount than the driver's configured account.")
+    if subaccount.get("is_active") is False:
+        raise HTTPException(status_code=409, detail="The driver's Paystack subaccount is inactive.")
+    return subaccount
+
+
 def paystack_expected_amount_kobo(ride: dict) -> int:
     try:
         return naira_to_kobo(ride.get("fare"))
@@ -2485,6 +2510,9 @@ async def initialize_paystack_payment(
     if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
         raise HTTPException(status_code=409, detail="The assigned driver is not eligible to receive payments.")
     split_config = paystack_split_config(driver)
+    await validate_paystack_subaccount_for_current_key(
+        driver.get("paystack_subaccount_code", "")
+    )
 
     payment_reference = f"OKA-{secrets.token_hex(12).upper()}"
     rows = await supabase_request(
