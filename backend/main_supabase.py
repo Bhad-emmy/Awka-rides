@@ -2293,26 +2293,28 @@ def paystack_secret_key() -> str:
 PAYSTACK_PLATFORM_COMMISSION_PERCENT = 15
 
 
-def paystack_split_config() -> dict:
-    """Return the Ọka-Rides platform split configuration.
+def paystack_split_config(driver: dict) -> dict:
+    """Build the split for the driver assigned to this ride.
 
-    Paystack's percentage_charge is the percentage retained by the main
-    platform account; the subaccount receives the remainder.
+    The main Paystack account (MEKA LOGIC) retains the platform commission.
+    The driver's own subaccount receives the remainder. The account bearer
+    setting makes the main account responsible for Paystack transaction fees.
     """
-    subaccount_code = os.getenv("PAYSTACK_OKA_SUBACCOUNT_CODE", "").strip()
+    subaccount_code = str(driver.get("paystack_subaccount_code") or "").strip()
     if not subaccount_code:
         raise HTTPException(
-            status_code=503,
-            detail="Ọka-Rides Paystack subaccount is not configured on the server.",
+            status_code=409,
+            detail="The assigned driver does not have a Paystack subaccount configured.",
         )
     if not subaccount_code.startswith("ACCT_"):
         raise HTTPException(
-            status_code=503,
-            detail="Ọka-Rides Paystack subaccount code is invalid.",
+            status_code=409,
+            detail="The assigned driver's Paystack subaccount code is invalid.",
         )
     return {
         "subaccount": subaccount_code,
         "percentage_charge": PAYSTACK_PLATFORM_COMMISSION_PERCENT / 100,
+        "bearer": "account",
     }
 
 
@@ -2484,7 +2486,13 @@ async def initialize_paystack_payment(
     if not email:
         raise HTTPException(status_code=422, detail="A valid customer email is required for Paystack checkout.")
 
-    split_config = paystack_split_config()
+    assigned_driver_id = str(ride.get("driver_id") or "").strip()
+    if not assigned_driver_id:
+        raise HTTPException(status_code=409, detail="This ride has no assigned driver for payout.")
+    assigned_driver = await get_driver_record(assigned_driver_id)
+    if assigned_driver.get("status") != "ACTIVE" or assigned_driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=409, detail="The assigned driver is not eligible to receive payments.")
+    split_config = paystack_split_config(assigned_driver)
     payment_reference = f"OKA-{secrets.token_hex(12).upper()}"
     rows = await supabase_request(
         "PATCH",
