@@ -10,6 +10,7 @@ from backend.main_supabase import (
     paystack_payment_already_applied,
     paystack_signature_is_valid,
     validate_paystack_transaction,
+    paystack_split_config,
 )
 
 
@@ -75,6 +76,28 @@ class PaystackHelperTests(unittest.TestCase):
         transaction = {**self.transaction, "metadata": {"ride_id": "other-ride"}}
         with self.assertRaises(HTTPException):
             validate_paystack_transaction(transaction, self.ride, "OKA-TEST-123")
+
+
+class PaystackSplitConfigTests(unittest.TestCase):
+    def test_platform_keeps_15_percent_driver_gets_85_and_account_bears_fees(self):
+        config = paystack_split_config({"paystack_subaccount_code": "ACCT_DRIVER123"})
+        self.assertEqual(
+            config["split"],
+            {
+                "type": "percentage",
+                "bearer_type": "account",
+                "subaccounts": [{"subaccount": "ACCT_DRIVER123", "share": 85}],
+            },
+        )
+        self.assertEqual(100 - config["split"]["subaccounts"][0]["share"], 15)
+
+    def test_missing_driver_subaccount_is_rejected(self):
+        with self.assertRaises(HTTPException):
+            paystack_split_config({})
+
+    def test_invalid_driver_subaccount_is_rejected(self):
+        with self.assertRaises(HTTPException):
+            paystack_split_config({"paystack_subaccount_code": "not-an-acct"})
 
 
 if __name__ == "__main__":
