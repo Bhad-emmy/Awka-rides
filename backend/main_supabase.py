@@ -2387,6 +2387,8 @@ def paystack_expected_amount_kobo(ride: dict) -> int:
 
 
 def validate_paystack_transaction(transaction: dict, ride: dict, reference: str, expected_subaccount_code: str | None = None) -> None:
+    if str(transaction.get("domain") or "").lower() != paystack_mode():
+        raise HTTPException(status_code=409, detail="Paystack transaction belongs to a different payment environment.")
     if transaction.get("status") != "success":
         raise HTTPException(status_code=409, detail="Paystack has not confirmed a successful payment.")
     if str(transaction.get("reference") or "") != reference:
