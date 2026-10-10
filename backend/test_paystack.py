@@ -79,23 +79,31 @@ class PaystackHelperTests(unittest.TestCase):
 
     def test_subaccount_must_route_fifteen_percent_to_platform(self):
         validate_paystack_subaccount(
-            {"subaccount_code": "ACCT_TEST123", "percentage_charge": 15, "is_active": True},
+            {"subaccount_code": "ACCT_TEST123", "percentage_charge": 15, "active": True, "domain": "test"},
             "ACCT_TEST123",
         )
 
     def test_subaccount_with_wrong_percentage_is_rejected(self):
         with self.assertRaises(HTTPException):
             validate_paystack_subaccount(
-                {"subaccount_code": "ACCT_TEST123", "percentage_charge": 85, "is_active": True},
+                {"subaccount_code": "ACCT_TEST123", "percentage_charge": 85, "active": True, "domain": "test"},
                 "ACCT_TEST123",
             )
 
     def test_subaccount_code_mismatch_is_rejected(self):
         with self.assertRaises(HTTPException):
             validate_paystack_subaccount(
-                {"subaccount_code": "ACCT_OTHER123", "percentage_charge": 15, "is_active": True},
+                {"subaccount_code": "ACCT_OTHER123", "percentage_charge": 15, "active": True, "domain": "test"},
                 "ACCT_TEST123",
             )
+
+    def test_live_subaccount_is_rejected_in_test_mode(self):
+        with patch.dict(os.environ, {"PAYSTACK_MODE": "test"}):
+            with self.assertRaises(HTTPException):
+                validate_paystack_subaccount(
+                    {"subaccount_code": "ACCT_TEST123", "percentage_charge": 15, "active": True, "domain": "live"},
+                    "ACCT_TEST123",
+                )
 
     def test_valid_transaction_matches_ride(self):
         validate_paystack_transaction(self.transaction, self.ride, "OKA-TEST-123")
