@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
@@ -11,7 +12,35 @@ from backend.main_supabase import (
     paystack_signature_is_valid,
     validate_paystack_transaction,
     paystack_split_config,
+    validate_paystack_subaccount_for_current_key,
 )
+
+
+class PaystackSubaccountEnvironmentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_subaccount_is_checked_using_configured_paystack_key(self):
+        with patch("backend.main_supabase.paystack_api", new=AsyncMock(return_value={
+            "subaccount_code": "ACCT_TEST123", "is_active": True,
+        })) as api:
+            result = await validate_paystack_subaccount_for_current_key("ACCT_TEST123")
+        api.assert_awaited_once_with("GET", "/subaccount/ACCT_TEST123")
+        self.assertTrue(result["is_active"])
+
+    async def test_rejects_subaccount_not_accessible_with_current_key(self):
+        with patch("backend.main_supabase.paystack_api", new=AsyncMock(
+            side_effect=HTTPException(status_code=502, detail="Paystack rejected request")
+        )):
+            with self.assertRaises(HTTPException) as caught:
+                await validate_paystack_subaccount_for_current_key("ACCT_LIVE123")
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("test keys", caught.exception.detail)
+
+    async def test_rejects_inactive_subaccount(self):
+        with patch("backend.main_supabase.paystack_api", new=AsyncMock(return_value={
+            "subaccount_code": "ACCT_TEST123", "is_active": False,
+        })):
+            with self.assertRaises(HTTPException) as caught:
+                await validate_paystack_subaccount_for_current_key("ACCT_TEST123")
+        self.assertEqual(caught.exception.status_code, 409)
 
 
 class PaystackHelperTests(unittest.TestCase):
