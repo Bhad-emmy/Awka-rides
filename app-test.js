@@ -220,7 +220,10 @@ const customerRefreshTimer = setInterval(refreshCustomerScreen, 15000);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     refreshCustomerScreen();
-    if (activeRideReference && !ridePollTimer) startRidePolling(activeRideReference);
+    if (activeRideReference) {
+      if (!ridePollTimer) startRidePolling(activeRideReference);
+      else if (!ridePollInFlight) openRide(activeRideReference, true);
+    }
   }
 });
 
