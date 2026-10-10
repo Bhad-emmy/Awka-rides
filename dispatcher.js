@@ -293,8 +293,25 @@ async function loadRides() {
     try {
         const data = await apiRequest(`/rides${filter ? `?status=${encodeURIComponent(filter)}` : ""}`);
         state.rides = data.rides || [];
+
+        // A selected ride can be deleted or become excluded by the current
+        // status filter. Never leave its old details/actions on screen.
+        if (state.selectedRide && !state.rides.some((ride) => ride.id === state.selectedRide.id)) {
+            state.selectedRide = null;
+            state.selectedDriverId = null;
+            renderDetails();
+        }
+
+        // Clear an alert for a ride that no longer exists in the current queue.
+        if (latestNewRide && !state.rides.some((ride) => ride.id === latestNewRide.id)) {
+            latestNewRide = null;
+            $("#new-ride-alert").hidden = true;
+            stopRideAlert();
+        }
+
         $("#ride-count").textContent = state.rides.length;
         renderRideList();
+        setFeedback("");
     } catch (error) {
         $("#ride-list").innerHTML = `<div class="empty">${html(error.message)}</div>`;
         setFeedback(error.message);

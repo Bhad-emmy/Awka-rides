@@ -151,7 +151,27 @@ async def csrf_protection_middleware(request: Request, call_next):
     dispatcher_cookie = request.cookies.get(DISPATCHER_SESSION_COOKIE)
     csrf_header = request.headers.get("X-CSRF-Token")
 
-    if customer_cookie:
+    # Shared ride-management URLs are used by the dispatcher, while customer
+    # booking uses POST /api/rides and customer-specific URLs. If both session
+    # cookies exist in the same browser, select the session belonging to this
+    # route instead of always validating against the customer cookie first.
+    path = request.url.path
+    dispatcher_route = (
+        path.startswith("/api/auth/")
+        or path.startswith("/api/rides/")
+        or path == "/api/drivers"
+        or path.startswith("/api/drivers/")
+    )
+
+    if dispatcher_route and dispatcher_cookie:
+        username, _, session_secret = dispatcher_settings()
+        if session_username(dispatcher_cookie, session_secret) != username:
+            return JSONResponse(status_code=401, content={"detail": "Dispatcher authentication required."})
+        try:
+            validate_csrf_token(dispatcher_cookie, csrf_header)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    elif customer_cookie:
         try:
             validate_csrf_token(customer_cookie, csrf_header)
         except HTTPException as exc:
