@@ -28,6 +28,7 @@ class PaystackHelperTests(unittest.TestCase):
             "payment_reference": "OKA-TEST-123",
         }
         self.transaction = {
+            "domain": "test",
             "status": "success",
             "reference": "OKA-TEST-123",
             "currency": "NGN",
