@@ -2484,6 +2484,7 @@ async def initialize_paystack_payment(
     if not email:
         raise HTTPException(status_code=422, detail="A valid customer email is required for Paystack checkout.")
 
+    split_config = paystack_split_config()
     payment_reference = f"OKA-{secrets.token_hex(12).upper()}"
     rows = await supabase_request(
         "PATCH",
@@ -2508,7 +2509,7 @@ async def initialize_paystack_payment(
             "reference": payment_reference,
             "callback_url": callback_url,
             "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference},
-            **paystack_split_config(),
+            **split_config,
         })
     except HTTPException:
         await supabase_request(
