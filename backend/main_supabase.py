@@ -1941,6 +1941,69 @@ async def driver_offers(driver_id: str = Depends(require_driver_token)):
         },
         action_description="driver offer lookup",
     )
+
+    # Expired offers must release the driver and return the ride to dispatch.
+    # Otherwise the driver stays BUSY with no visible offer and cannot receive
+    # another request.
+    now = datetime.now(timezone.utc)
+    for offer in rows:
+        expires = offer.get("dispatch_offer_expires_at")
+        if not expires:
+            continue
+        try:
+            expiry = datetime.fromisoformat(str(expires).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if expiry >= now:
+            continue
+
+        ride_id = offer.get("id")
+        reset_rows = await supabase_request(
+            "PATCH",
+            SUPABASE_TABLE_RIDES,
+            params={
+                "id": f"eq.{ride_id}",
+                "driver_id": f"eq.{driver_id}",
+                "status": "eq.REQUESTED",
+                "dispatch_offer_status": "eq.OFFERED",
+            },
+            json_body={
+                "driver_id": None,
+                "driver_name": None,
+                "driver_phone": None,
+                "driver_vehicle": None,
+                "driver_plate_number": None,
+                "dispatch_offer_status": "NONE",
+                "dispatch_offer_expires_at": None,
+            },
+            action_description="expired ride offer reset",
+        )
+        if not reset_rows:
+            continue
+
+        await supabase_request(
+            "PATCH",
+            SUPABASE_TABLE_DRIVERS,
+            params={"driver_id": f"eq.{driver_id}", "availability_status": "eq.BUSY"},
+            json_body={"availability_status": "ONLINE"},
+            action_description="expired offer driver release",
+        )
+        await auto_dispatch_ride(reset_rows[0])
+
+    # Re-read after expiry handling so a newly issued offer appears immediately.
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_RIDES,
+        params={
+            "select": "*",
+            "driver_id": f"eq.{driver_id}",
+            "dispatch_offer_status": "eq.OFFERED",
+            "status": "eq.REQUESTED",
+            "order": "dispatched_at.desc",
+            "limit": "10",
+        },
+        action_description="driver offer refresh",
+    )
     return {"offers": [ride_representation(row) for row in rows]}
 
 
