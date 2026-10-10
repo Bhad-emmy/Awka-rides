@@ -2311,10 +2311,16 @@ def paystack_split_config(driver: dict) -> dict:
             status_code=409,
             detail="The assigned driver's Paystack subaccount code is invalid.",
         )
+    # Dynamic percentage splits use integer percentage shares. Giving the
+    # driver 85% leaves the remaining 15% with the main MEKA LOGIC account.
+    # The transaction initialize API accepts this under the "split" object;
+    # percentage_charge belongs to subaccount creation, not transaction init.
     return {
-        "subaccount": subaccount_code,
-        "percentage_charge": PAYSTACK_PLATFORM_COMMISSION_PERCENT / 100,
-        "bearer": "account",
+        "split": {
+            "type": "percentage",
+            "bearer_type": "account",
+            "subaccounts": [{"subaccount": subaccount_code, "share": 100 - PAYSTACK_PLATFORM_COMMISSION_PERCENT}],
+        },
     }
 
 
