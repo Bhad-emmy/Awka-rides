@@ -2255,7 +2255,7 @@ async def verify_payment(
         )
         fields.update({
             "payment_reference": payment.paymentReference.strip(),
-            "payment_method": "OFFLINE",
+            "payment_method": "OPAY",
             "status": "PAID",
         })
     else:
