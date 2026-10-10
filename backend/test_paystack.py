@@ -81,10 +81,15 @@ class PaystackHelperTests(unittest.TestCase):
 class PaystackSplitConfigTests(unittest.TestCase):
     def test_platform_keeps_15_percent_driver_gets_85_and_account_bears_fees(self):
         config = paystack_split_config({"paystack_subaccount_code": "ACCT_DRIVER123"})
-        self.assertEqual(config["percentage_charge"], 0.15)
-        self.assertEqual(round((1 - config["percentage_charge"]) * 100), 85)
-        self.assertEqual(config["subaccount"], "ACCT_DRIVER123")
-        self.assertEqual(config["bearer"], "account")
+        self.assertEqual(
+            config["split"],
+            {
+                "type": "percentage",
+                "bearer_type": "account",
+                "subaccounts": [{"subaccount": "ACCT_DRIVER123", "share": 85}],
+            },
+        )
+        self.assertEqual(100 - config["split"]["subaccounts"][0]["share"], 15)
 
     def test_missing_driver_subaccount_is_rejected(self):
         with self.assertRaises(HTTPException):
