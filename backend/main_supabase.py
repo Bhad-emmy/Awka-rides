@@ -250,7 +250,7 @@ class PaystackVerifyRequest(BaseModel):
 
 
 class PaystackSubaccountUpdate(BaseModel):
-    subaccountCode: str = Field(min_length=6, max_length=80, pattern=r"^ACCT_[A-Za-z0-9]+$")
+    subaccountCode: str = Field(min_length=6, max_length=80)
 
 
 class RideStatusUpdate(BaseModel):
@@ -2311,8 +2311,10 @@ def validate_paystack_subaccount(subaccount: dict, expected_code: str) -> None:
     actual_code = str(subaccount.get("subaccount_code") or "")
     if actual_code != expected_code:
         raise HTTPException(status_code=409, detail="Paystack returned a different subaccount than the driver's configured account.")
-    if subaccount.get("is_active") is False:
+    if subaccount.get("active", subaccount.get("is_active")) in (False, 0):
         raise HTTPException(status_code=409, detail="The driver's Paystack subaccount is inactive.")
+    if str(subaccount.get("domain") or "").lower() != paystack_mode():
+        raise HTTPException(status_code=409, detail="The driver's Paystack subaccount belongs to a different Paystack environment.")
     try:
         platform_percentage = float(subaccount.get("percentage_charge"))
     except (TypeError, ValueError):
@@ -2630,9 +2632,10 @@ async def set_driver_paystack_subaccount(
 ):
     """Assign a Paystack subaccount code created and verified in the current mode's dashboard."""
     code = update.subaccountCode.strip()
-    # Do not let a test-mode application bind a live Paystack account.
-    if paystack_mode() == "test" and not code.startswith("ACCT_"):
-        raise HTTPException(status_code=422, detail="A Paystack test subaccount code beginning with ACCT_ is required.")
+    # Validate the provider's account-code format before storing it. Domain and
+    # percentage are checked against Paystack itself at checkout initialization.
+    if not code.startswith("ACCT_") or not code[5:].isalnum():
+        raise HTTPException(status_code=422, detail="A valid Paystack subaccount code beginning with ACCT_ is required.")
     await get_driver_record(driver_id)
     rows = await supabase_request(
         "PATCH", SUPABASE_TABLE_DRIVERS,
