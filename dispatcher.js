@@ -159,6 +159,49 @@ function startRideAlerts() {
     alertPollTimer = setInterval(checkForNewRideRequests, ALERT_POLL_MS);
 }
 
+
+// Keep the queue, selected ride state, driver choices, and payment history
+// synchronized without a full-page reload. Do not rebuild editable controls
+// while the dispatcher is using them.
+let dashboardRefreshInFlight = false;
+async function refreshDispatcherDashboard() {
+    if (document.hidden || dashboardRefreshInFlight || $("#dispatcher-app").hidden || state.mutationInProgress) return;
+    dashboardRefreshInFlight = true;
+    try {
+        await loadRides({ silent: true });
+        const selectedId = state.selectedRide?.id;
+        if (!selectedId || state.mutationInProgress) return;
+
+        const active = document.activeElement;
+        const detailControlsFocused = active && $("#ride-details").contains(active)
+            && ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName);
+        if (detailControlsFocused) return;
+
+        const updatedRide = await apiRequest(`/rides/${encodeURIComponent(selectedId)}`);
+        if (state.selectedRide?.id !== selectedId) return;
+        const statusChanged = state.selectedRide.status !== updatedRide.status;
+        const driverChanged = state.selectedRide.driverId !== updatedRide.driverId;
+        state.selectedRide = updatedRide;
+        renderDetails();
+
+        const work = [loadRidePaymentRecords(selectedId)];
+        if (updatedRide.status === "REQUESTED" && (statusChanged || driverChanged || !state.selectedDriverId)) {
+            work.push(loadDrivers());
+        }
+        await Promise.all(work);
+    } catch (error) {
+        if (!String(error.message || "").toLowerCase().includes("expired")) {
+            console.warn("Dispatcher auto-refresh failed:", error);
+        }
+    } finally {
+        dashboardRefreshInFlight = false;
+    }
+}
+setInterval(refreshDispatcherDashboard, 5000);
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshDispatcherDashboard();
+});
+
 function showLogin(message = "") {
     $("#dispatcher-app").hidden = true;
     $("#login-panel").hidden = false;
@@ -287,9 +330,9 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
     }
 });
 
-async function loadRides() {
+async function loadRides({ silent = false } = {}) {
     const filter = $("#status-filter").value;
-    $("#ride-list").innerHTML = '<div class="empty">Loading rides...</div>';
+    if (!silent) $("#ride-list").innerHTML = '<div class="empty">Loading rides...</div>';
     try {
         const data = await apiRequest(`/rides${filter ? `?status=${encodeURIComponent(filter)}` : ""}`);
         state.rides = data.rides || [];
@@ -313,8 +356,12 @@ async function loadRides() {
         renderRideList();
         setFeedback("");
     } catch (error) {
-        $("#ride-list").innerHTML = `<div class="empty">${html(error.message)}</div>`;
-        setFeedback(error.message);
+        if (!silent) {
+            $("#ride-list").innerHTML = `<div class="empty">${html(error.message)}</div>`;
+            setFeedback(error.message);
+        } else {
+            console.warn("Dispatcher ride refresh failed:", error);
+        }
     }
 }
 
