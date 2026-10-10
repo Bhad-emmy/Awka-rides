@@ -2290,6 +2290,26 @@ def paystack_secret_key() -> str:
     return key
 
 
+PAYSTACK_PLATFORM_COMMISSION_PERCENT = 15
+
+
+def paystack_split_config(driver: dict) -> dict:
+    """Route 85% to the assigned driver and retain 15% on the platform account."""
+    subaccount_code = str(driver.get("paystack_subaccount_code") or "").strip()
+    if not subaccount_code.startswith("ACCT_"):
+        raise HTTPException(
+            status_code=409,
+            detail="The assigned driver does not have a valid Paystack subaccount configured.",
+        )
+    return {
+        "split": {
+            "type": "percentage",
+            "bearer_type": "account",
+            "subaccounts": [{"subaccount": subaccount_code, "share": 85}],
+        },
+    }
+
+
 def naira_to_kobo(amount) -> int:
     try:
         value = float(amount)
@@ -2458,6 +2478,14 @@ async def initialize_paystack_payment(
     if not email:
         raise HTTPException(status_code=422, detail="A valid customer email is required for Paystack checkout.")
 
+    driver_id = str(ride.get("driver_id") or "").strip()
+    if not driver_id:
+        raise HTTPException(status_code=409, detail="This ride has no assigned driver for payout.")
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=409, detail="The assigned driver is not eligible to receive payments.")
+    split_config = paystack_split_config(driver)
+
     payment_reference = f"OKA-{secrets.token_hex(12).upper()}"
     rows = await supabase_request(
         "PATCH",
@@ -2482,6 +2510,7 @@ async def initialize_paystack_payment(
             "reference": payment_reference,
             "callback_url": callback_url,
             "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference},
+            **split_config,
         })
     except HTTPException:
         await supabase_request(
