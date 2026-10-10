@@ -2290,6 +2290,32 @@ def paystack_secret_key() -> str:
     return key
 
 
+PAYSTACK_PLATFORM_COMMISSION_PERCENT = 15
+
+
+def paystack_split_config() -> dict:
+    """Return the Ọka-Rides platform split configuration.
+
+    Paystack's percentage_charge is the percentage retained by the main
+    platform account; the subaccount receives the remainder.
+    """
+    subaccount_code = os.getenv("PAYSTACK_OKA_SUBACCOUNT_CODE", "").strip()
+    if not subaccount_code:
+        raise HTTPException(
+            status_code=503,
+            detail="Ọka-Rides Paystack subaccount is not configured on the server.",
+        )
+    if not subaccount_code.startswith("ACCT_"):
+        raise HTTPException(
+            status_code=503,
+            detail="Ọka-Rides Paystack subaccount code is invalid.",
+        )
+    return {
+        "subaccount": subaccount_code,
+        "percentage_charge": PAYSTACK_PLATFORM_COMMISSION_PERCENT / 100,
+    }
+
+
 def naira_to_kobo(amount) -> int:
     try:
         value = float(amount)
@@ -2482,6 +2508,7 @@ async def initialize_paystack_payment(
             "reference": payment_reference,
             "callback_url": callback_url,
             "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference},
+            **paystack_split_config(),
         })
     except HTTPException:
         await supabase_request(
