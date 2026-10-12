@@ -9,6 +9,7 @@ import json
 import secrets
 import time
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from typing import Literal
 
 import httpx
@@ -1473,6 +1474,56 @@ class DriverPayoutUpdate(BaseModel):
     payoutNote: str = Field(default="", max_length=500)
 
 
+
+
+class DriverPayoutBatch(BaseModel):
+    driverId: str = Field(min_length=1, max_length=80)
+    serviceDate: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    payoutReference: str = Field(min_length=1, max_length=120)
+    payoutNote: str = Field(default="", max_length=500)
+
+
+@app.post("/api/driver-earnings/payout-batch")
+async def mark_driver_day_paid(
+    body: DriverPayoutBatch,
+    _: str = Depends(require_dispatcher_session),
+):
+    try:
+        datetime.strptime(body.serviceDate, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Service date must be a valid YYYY-MM-DD date.") from exc
+    params = {
+        "select": "*",
+        "driver_id": f"eq.{body.driverId}",
+        "service_date": f"eq.{body.serviceDate}",
+        "payout_status": "eq.UNPAID",
+        "order": "created_at.asc",
+        "limit": "1000",
+    }
+    unpaid = await supabase_request("GET", "oka_rides_driver_earnings", params=params,
+        action_description="daily driver payout batch lookup")
+    if not unpaid:
+        raise HTTPException(status_code=409, detail="No unpaid trips for this driver on the selected date.")
+    total_kobo = sum(int(entry.get("driver_earnings_kobo") or 0) for entry in unpaid)
+    payout_reference = body.payoutReference.strip()
+    # Mark all currently-unpaid entries using the same actual bank transfer reference.
+    updated = await supabase_request("PATCH", "oka_rides_driver_earnings",
+        params={"driver_id": f"eq.{body.driverId}", "service_date": f"eq.{body.serviceDate}",
+                "payout_status": "eq.UNPAID"},
+        json_body={"payout_status": "PAID", "payout_reference": payout_reference,
+                   "payout_note": body.payoutNote.strip() or None,
+                   "paid_out_at": datetime.now(timezone.utc).isoformat(), "paid_out_by": _},
+        action_description="daily driver payout batch reconciliation")
+    if len(updated) != len(unpaid):
+        raise HTTPException(status_code=409, detail="The ledger changed while recording payout. Refresh and reconcile before paying again.")
+    await write_audit_log("dispatcher", _, "driver.daily_earnings_paid", "driver",
+        body.driverId, {"service_date": body.serviceDate, "trip_count": len(updated),
+                        "amount_kobo": total_kobo, "payout_reference": payout_reference})
+    return {"success": True, "driverId": body.driverId, "serviceDate": body.serviceDate,
+            "tripCount": len(updated), "amountKobo": total_kobo, "payoutReference": payout_reference,
+            "message": "Payout recorded. This endpoint does not transfer money."}
+
+
 @app.post("/api/driver-earnings/{earning_id}/payout")
 async def mark_driver_earning_paid(
     body: DriverPayoutUpdate,
@@ -1491,7 +1542,7 @@ async def mark_driver_earning_paid(
     updated = await supabase_request("PATCH", "oka_rides_driver_earnings",
         params={"id": f"eq.{earning_id}", "payout_status": "eq.UNPAID"},
         json_body={"payout_status": "PAID", "payout_reference": body.payoutReference.strip(),
-                   "payout_note": body.payoutNote.strip() or None, "paid_out_at": now},
+                   "payout_note": body.payoutNote.strip() or None, "paid_out_at": now, "paid_out_by": _},
         action_description="driver payout reconciliation")
     if not updated:
         raise HTTPException(status_code=409, detail="Payout status changed. Refresh the ledger.")
@@ -2443,14 +2494,18 @@ async def record_driver_earning(ride: dict, payment_reference: str, payment_meth
     driver_kobo, platform_kobo = split_fare_kobo(fare_kobo)
     created_at = ride.get("created_at") or datetime.now(timezone.utc).isoformat()
     try:
-        service_date = datetime.fromisoformat(str(created_at).replace("Z", "+00:00")).date().isoformat()
-    except ValueError:
-        service_date = datetime.now(timezone.utc).date().isoformat()
+        ride_time = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        if ride_time.tzinfo is None:
+            ride_time = ride_time.replace(tzinfo=timezone.utc)
+        service_date = ride_time.astimezone(ZoneInfo("Africa/Lagos")).date().isoformat()
+    except (ValueError, TypeError):
+        service_date = datetime.now(ZoneInfo("Africa/Lagos")).date().isoformat()
     payload = {
         "ride_id": str(ride.get("id")),
         "ride_reference": str(ride.get("reference") or ""),
         "driver_id": str(ride.get("driver_id")),
         "driver_name": str(ride.get("driver_name") or ride.get("driver_id")),
+        "route_text": f"{ride.get('pickup') or 'Unknown pickup'} → {ride.get('destination') or 'Unknown destination'}",
         "service_date": service_date,
         "fare_kobo": fare_kobo,
         "driver_earnings_kobo": driver_kobo,
