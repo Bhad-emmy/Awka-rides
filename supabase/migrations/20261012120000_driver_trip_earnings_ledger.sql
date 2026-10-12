@@ -6,6 +6,7 @@ create table if not exists public.oka_rides_driver_earnings (
   ride_reference text not null,
   driver_id text not null,
   driver_name text not null,
+  route_text text not null,
   service_date date not null,
   fare_kobo bigint not null check (fare_kobo > 0),
   driver_earnings_kobo bigint not null check (driver_earnings_kobo >= 0),
