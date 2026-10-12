@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
@@ -10,7 +11,36 @@ from backend.main_supabase import (
     paystack_payment_already_applied,
     paystack_signature_is_valid,
     validate_paystack_transaction,
+    paystack_split_config,
+    validate_paystack_subaccount_for_current_key,
 )
+
+
+class PaystackSubaccountEnvironmentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_subaccount_is_checked_using_configured_paystack_key(self):
+        with patch("backend.main_supabase.paystack_api", new=AsyncMock(return_value={
+            "subaccount_code": "ACCT_TEST123", "is_active": True,
+        })) as api:
+            result = await validate_paystack_subaccount_for_current_key("ACCT_TEST123")
+        api.assert_awaited_once_with("GET", "/subaccount/ACCT_TEST123")
+        self.assertTrue(result["is_active"])
+
+    async def test_rejects_subaccount_not_accessible_with_current_key(self):
+        with patch("backend.main_supabase.paystack_api", new=AsyncMock(
+            side_effect=HTTPException(status_code=502, detail="Paystack rejected request")
+        )):
+            with self.assertRaises(HTTPException) as caught:
+                await validate_paystack_subaccount_for_current_key("ACCT_LIVE123")
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("test keys", caught.exception.detail)
+
+    async def test_rejects_inactive_subaccount(self):
+        with patch("backend.main_supabase.paystack_api", new=AsyncMock(return_value={
+            "subaccount_code": "ACCT_TEST123", "is_active": False,
+        })):
+            with self.assertRaises(HTTPException) as caught:
+                await validate_paystack_subaccount_for_current_key("ACCT_TEST123")
+        self.assertEqual(caught.exception.status_code, 409)
 
 
 class PaystackHelperTests(unittest.TestCase):
@@ -62,6 +92,22 @@ class PaystackHelperTests(unittest.TestCase):
         self.assertTrue(paystack_signature_is_valid(body, signature, secret))
         self.assertFalse(paystack_signature_is_valid(body, "bad", secret))
         self.assertFalse(paystack_signature_is_valid(body, None, secret))
+
+    def test_split_config_routes_85_percent_to_driver_and_platform_keeps_15_percent(self):
+        config = paystack_split_config({"paystack_subaccount_code": "ACCT_DRIVER123"})
+        self.assertEqual(config, {
+            "split": {
+                "type": "percentage",
+                "bearer_type": "account",
+                "subaccounts": [{"subaccount": "ACCT_DRIVER123", "share": 85}],
+            },
+        })
+
+    def test_split_config_rejects_missing_or_invalid_subaccount(self):
+        for driver in ({}, {"paystack_subaccount_code": "invalid"}):
+            with self.subTest(driver=driver):
+                with self.assertRaises(HTTPException):
+                    paystack_split_config(driver)
 
     def test_valid_transaction_matches_ride(self):
         validate_paystack_transaction(self.transaction, self.ride, "OKA-TEST-123")

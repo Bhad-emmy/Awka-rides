@@ -2353,6 +2353,26 @@ def paystack_secret_key() -> str:
     return key
 
 
+PAYSTACK_PLATFORM_COMMISSION_PERCENT = 15
+
+
+def paystack_split_config(driver: dict) -> dict:
+    """Route 85% to the assigned driver and retain 15% on the platform account."""
+    subaccount_code = str(driver.get("paystack_subaccount_code") or "").strip()
+    if not subaccount_code.startswith("ACCT_"):
+        raise HTTPException(
+            status_code=409,
+            detail="The assigned driver does not have a valid Paystack subaccount configured.",
+        )
+    return {
+        "split": {
+            "type": "percentage",
+            "bearer_type": "account",
+            "subaccounts": [{"subaccount": subaccount_code, "share": 85}],
+        },
+    }
+
+
 def naira_to_kobo(amount) -> int:
     try:
         value = float(amount)
@@ -2403,6 +2423,31 @@ async def paystack_api(method: str, path: str, payload: dict | None = None) -> d
     if response.is_error or result.get("status") is not True:
         raise HTTPException(status_code=502, detail="Paystack could not process the payment request.")
     return result.get("data") or {}
+
+
+async def validate_paystack_subaccount_for_current_key(subaccount_code: str) -> dict:
+    """Confirm the subaccount is accessible and active under the configured Paystack key.
+
+    Paystack test/live keys are isolated. Looking up the subaccount with the same
+    key used to initialize the transaction prevents sending a split to a code from
+    the other environment.
+    """
+    code = str(subaccount_code or "").strip()
+    if not code.startswith("ACCT_"):
+        raise HTTPException(status_code=409, detail="Driver Paystack subaccount code is invalid.")
+    try:
+        subaccount = await paystack_api("GET", f"/subaccount/{code}")
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Driver Paystack subaccount could not be verified with the configured Paystack key. Check that test keys use a test subaccount and live keys use a live subaccount.",
+        ) from exc
+    returned_code = str(subaccount.get("subaccount_code") or subaccount.get("code") or "").strip()
+    if returned_code and returned_code != code:
+        raise HTTPException(status_code=409, detail="Paystack returned a different subaccount than the driver's configured account.")
+    if subaccount.get("is_active") is False:
+        raise HTTPException(status_code=409, detail="The driver's Paystack subaccount is inactive.")
+    return subaccount
 
 
 def paystack_expected_amount_kobo(ride: dict) -> int:
@@ -2521,6 +2566,17 @@ async def initialize_paystack_payment(
     if not email:
         raise HTTPException(status_code=422, detail="A valid customer email is required for Paystack checkout.")
 
+    driver_id = str(ride.get("driver_id") or "").strip()
+    if not driver_id:
+        raise HTTPException(status_code=409, detail="This ride has no assigned driver for payout.")
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=409, detail="The assigned driver is not eligible to receive payments.")
+    split_config = paystack_split_config(driver)
+    await validate_paystack_subaccount_for_current_key(
+        driver.get("paystack_subaccount_code", "")
+    )
+
     payment_reference = f"OKA-{secrets.token_hex(12).upper()}"
     rows = await supabase_request(
         "PATCH",
@@ -2545,6 +2601,7 @@ async def initialize_paystack_payment(
             "reference": payment_reference,
             "callback_url": callback_url,
             "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference},
+            **split_config,
         })
     except HTTPException:
         await supabase_request(
