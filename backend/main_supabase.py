@@ -1429,6 +1429,79 @@ async def list_ride_payment_records(ride_id: str = Path(min_length=1), _: str = 
     return {"payments": rows}
 
 
+@app.get("/api/driver-earnings")
+async def list_driver_earnings(
+    service_date: str | None = Query(default=None, alias="date"),
+    driver_id: str | None = Query(default=None, min_length=1, max_length=80),
+    payout_status: Literal["UNPAID", "PAID"] | None = Query(default=None),
+    _: str = Depends(require_dispatcher_session),
+):
+    params = {"select": "*", "order": "service_date.desc,created_at.desc", "limit": "1000"}
+    if service_date:
+        try:
+            datetime.strptime(service_date, "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Date must use YYYY-MM-DD.") from exc
+        params["service_date"] = f"eq.{service_date}"
+    if driver_id:
+        params["driver_id"] = f"eq.{driver_id}"
+    if payout_status:
+        params["payout_status"] = f"eq.{payout_status}"
+    rows = await supabase_request("GET", "oka_rides_driver_earnings", params=params,
+        action_description="driver earnings list")
+    drivers = {}
+    for row in rows:
+        key = str(row.get("driver_id") or "")
+        summary = drivers.setdefault(key, {
+            "driverId": key, "driverName": row.get("driver_name"),
+            "tripCount": 0, "fareKobo": 0, "driverEarningsKobo": 0,
+            "platformCommissionKobo": 0, "unpaidKobo": 0, "paidOutKobo": 0,
+        })
+        summary["tripCount"] += 1
+        summary["fareKobo"] += int(row.get("fare_kobo") or 0)
+        summary["driverEarningsKobo"] += int(row.get("driver_earnings_kobo") or 0)
+        summary["platformCommissionKobo"] += int(row.get("platform_commission_kobo") or 0)
+        if row.get("payout_status") == "PAID":
+            summary["paidOutKobo"] += int(row.get("driver_earnings_kobo") or 0)
+        else:
+            summary["unpaidKobo"] += int(row.get("driver_earnings_kobo") or 0)
+    return {"entries": rows, "drivers": list(drivers.values()), "date": service_date}
+
+
+class DriverPayoutUpdate(BaseModel):
+    payoutReference: str = Field(min_length=1, max_length=120)
+    payoutNote: str = Field(default="", max_length=500)
+
+
+@app.post("/api/driver-earnings/{earning_id}/payout")
+async def mark_driver_earning_paid(
+    body: DriverPayoutUpdate,
+    earning_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    rows = await supabase_request("GET", "oka_rides_driver_earnings",
+        params={"select": "*", "id": f"eq.{earning_id}", "limit": "1"},
+        action_description="driver payout lookup")
+    if not rows:
+        raise HTTPException(status_code=404, detail="Driver earnings entry not found.")
+    earning = rows[0]
+    if earning.get("payout_status") == "PAID":
+        raise HTTPException(status_code=409, detail="This trip is already marked as paid out.")
+    now = datetime.now(timezone.utc).isoformat()
+    updated = await supabase_request("PATCH", "oka_rides_driver_earnings",
+        params={"id": f"eq.{earning_id}", "payout_status": "eq.UNPAID"},
+        json_body={"payout_status": "PAID", "payout_reference": body.payoutReference.strip(),
+                   "payout_note": body.payoutNote.strip() or None, "paid_out_at": now},
+        action_description="driver payout reconciliation")
+    if not updated:
+        raise HTTPException(status_code=409, detail="Payout status changed. Refresh the ledger.")
+    await write_audit_log("dispatcher", _, "driver.earning_marked_paid", "driver_earning",
+        earning_id, {"ride_reference": earning.get("ride_reference"),
+                     "driver_id": earning.get("driver_id"), "payout_reference": body.payoutReference.strip(),
+                     "amount_kobo": earning.get("driver_earnings_kobo")})
+    return {"success": True, "earning": updated[0]}
+
+
 @app.get("/api/rides/{ride_id}")
 async def get_ride(
     ride_id: str = Path(min_length=1),
@@ -2316,6 +2389,7 @@ async def verify_payment(
             ride, payment.paymentReference.strip(), naira_to_kobo(ride.get("fare")),
             "OFFLINE", "PAID", {"recorded_by": "dispatcher"},
         )
+        await record_driver_earning(ride, payment.paymentReference.strip(), "OFFLINE")
         fields.update({
             "payment_reference": payment.paymentReference.strip(),
             "payment_method": "OPAY",
@@ -2344,6 +2418,74 @@ async def verify_payment(
         "paymentStatus": payment.paymentStatus,
         "rideStatus": "PAID" if payment.paymentStatus == "PAID" else "DRIVER ASSIGNED",
     }
+
+
+
+DRIVER_EARNINGS_PERCENT = 85
+PLATFORM_COMMISSION_PERCENT = 15
+
+
+def split_fare_kobo(fare_kobo: int) -> tuple[int, int]:
+    """Split a fare in integer kobo; driver receives 85%, platform 15%."""
+    amount = int(fare_kobo)
+    if amount <= 0:
+        raise ValueError("Fare must be positive.")
+    driver_share = (amount * DRIVER_EARNINGS_PERCENT + 50) // 100
+    platform_share = amount - driver_share
+    return driver_share, platform_share
+
+
+async def record_driver_earning(ride: dict, payment_reference: str, payment_method: str) -> dict:
+    """Insert one immutable-per-trip earnings row; the database unique ride_id prevents duplicates."""
+    if not ride.get("driver_id") or not ride.get("fare"):
+        raise HTTPException(status_code=409, detail="A driver and confirmed fare are required for the earnings ledger.")
+    fare_kobo = naira_to_kobo(ride.get("fare"))
+    driver_kobo, platform_kobo = split_fare_kobo(fare_kobo)
+    created_at = ride.get("created_at") or datetime.now(timezone.utc).isoformat()
+    try:
+        service_date = datetime.fromisoformat(str(created_at).replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        service_date = datetime.now(timezone.utc).date().isoformat()
+    payload = {
+        "ride_id": str(ride.get("id")),
+        "ride_reference": str(ride.get("reference") or ""),
+        "driver_id": str(ride.get("driver_id")),
+        "driver_name": str(ride.get("driver_name") or ride.get("driver_id")),
+        "service_date": service_date,
+        "fare_kobo": fare_kobo,
+        "driver_earnings_kobo": driver_kobo,
+        "platform_commission_kobo": platform_kobo,
+        "payment_reference": payment_reference,
+        "payment_method": payment_method,
+        "payment_status": "PAID",
+        "payout_status": "UNPAID",
+    }
+    try:
+        rows = await supabase_request(
+            "POST", "oka_rides_driver_earnings", json_body=payload,
+            action_description="driver trip earnings ledger insert",
+            prefer="return=representation,resolution=ignore-duplicates",
+        )
+        if rows:
+            return rows[0]
+    except HTTPException:
+        pass
+    existing = await supabase_request(
+        "GET", "oka_rides_driver_earnings",
+        params={"select": "*", "ride_id": f"eq.{ride.get('id')}", "limit": "1"},
+        action_description="driver trip earnings idempotency lookup",
+    )
+    if not existing:
+        raise HTTPException(status_code=502, detail="Payment is recorded, but driver earnings could not be reconciled. Check the ledger before paying the driver.")
+    row = existing[0]
+    if (
+        str(row.get("payment_reference")) != payment_reference
+        or int(row.get("fare_kobo") or 0) != fare_kobo
+        or str(row.get("driver_id")) != str(ride.get("driver_id"))
+    ):
+        raise HTTPException(status_code=409, detail="This trip already has a different earnings entry. Manual reconciliation is required.")
+    return row
+
 
 
 def paystack_secret_key() -> str:
@@ -2530,6 +2672,7 @@ async def finalize_paystack_payment(ride: dict, reference: str, transaction: dic
     await record_payment_ledger(ride, reference, amount_kobo, "PAYSTACK", "PAID", {
         "transaction_id": transaction.get("id"), "channel": transaction.get("channel"),
     })
+    await record_driver_earning(ride, reference, "PAYSTACK")
     rows = await supabase_request(
         "PATCH", SUPABASE_TABLE_RIDES,
         params={"id": f"eq.{ride.get('id')}", "status": "eq.DRIVER ASSIGNED",
@@ -2568,14 +2711,10 @@ async def initialize_paystack_payment(
 
     driver_id = str(ride.get("driver_id") or "").strip()
     if not driver_id:
-        raise HTTPException(status_code=409, detail="This ride has no assigned driver for payout.")
+        raise HTTPException(status_code=409, detail="This ride has no assigned driver.")
     driver = await get_driver_record(driver_id)
     if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
-        raise HTTPException(status_code=409, detail="The assigned driver is not eligible to receive payments.")
-    split_config = paystack_split_config(driver)
-    await validate_paystack_subaccount_for_current_key(
-        driver.get("paystack_subaccount_code", "")
-    )
+        raise HTTPException(status_code=409, detail="The assigned driver is not eligible for payments.")
 
     payment_reference = f"OKA-{secrets.token_hex(12).upper()}"
     rows = await supabase_request(
@@ -2601,7 +2740,6 @@ async def initialize_paystack_payment(
             "reference": payment_reference,
             "callback_url": callback_url,
             "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference},
-            **split_config,
         })
     except HTTPException:
         await supabase_request(
