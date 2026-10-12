@@ -31,7 +31,7 @@
   <div class="metric">Still to pay<strong id="unpaid-total">—</strong></div>
  </div>
  <section class="panel"><div id="ledger-message" class="message">Loading driver ledger…</div>
- <table id="ledger-table" hidden><thead><tr><th>Service date</th><th>Driver</th><th>Trip</th><th>Route</th><th>Fare</th><th>Driver 85%</th><th>Platform 15%</th><th>Payout status</th><th>Payout reference</th><th>Action</th></tr></thead><tbody id="ledger-rows"></tbody></table></section>
+ <table id="ledger-table" hidden><thead><tr><th>Service date</th><th>Driver</th><th>Trip</th><th>Route</th><th>Fare</th><th>Driver 85%</th><th>Platform 15%</th><th>Payout status</th><th>Payout reference</th><th>Action</th></tr></thead><tbody id="ledger-rows"></tbody></table></section><section class="panel"><h2>Record end-of-day driver payout</h2><p class="muted">Transfer the exact outstanding amount shown above first. Then enter the actual bank transfer reference to mark all of this driver’s unpaid trips for the selected date as paid.</p><div class="filters"><label>Driver to pay<select id="payout-driver"><option value="">Select driver</option></select></label><label>Service date<input type="date" id="payout-date"></label><label>Bank transfer reference<input id="payout-reference" maxlength="120" placeholder="Bank transfer / transaction ID"></label><label>Note (optional)<input id="payout-note" maxlength="500" placeholder="Bank / payment note"></label><button class="btn" id="record-batch-payout">Record payout</button></div><div class="message" id="payout-message" aria-live="polite"></div></section>
 </section>
 <section id="payments-view" hidden>
  <div class="summary"><div class="metric">Paid transactions<strong id="paid-count">—</strong></div><div class="metric">Paid total<strong id="paid-total">—</strong></div><div class="metric">All records<strong id="record-count">—</strong></div></div>
@@ -64,13 +64,53 @@ async function loadLedger(){
   document.querySelector('#driver-total').textContent=money(ledgerEntries.reduce((s,e)=>s+Number(e.driver_earnings_kobo||0),0));
   document.querySelector('#commission-total').textContent=money(ledgerEntries.reduce((s,e)=>s+Number(e.platform_commission_kobo||0),0));
   document.querySelector('#unpaid-total').textContent=money(ledgerEntries.filter(e=>e.payout_status==='UNPAID').reduce((s,e)=>s+Number(e.driver_earnings_kobo||0),0));
-  document.querySelector('#ledger-rows').innerHTML=ledgerEntries.map(e=>'<tr><td>'+esc(e.service_date)+'</td><td>'+esc(e.driver_name)+'<br><small>'+esc(e.driver_id)+'</small></td><td>'+esc(e.ride_reference)+'</td><td>'+esc(e.route_text||'Route not recorded')+'</td><td>'+money(e.fare_kobo)+'</td><td><strong>'+money(e.driver_earnings_kobo)+'</strong></td><td>'+money(e.platform_commission_kobo)+'</td><td><span class="badge '+esc(e.payout_status)+'">'+esc(e.payout_status)+'</span>'+(e.paid_out_at?'<br><small>'+date(e.paid_out_at)+'</small>':'')+'</td><td>'+esc(e.payout_reference)+'</td><td>'+(e.payout_status==='UNPAID'?'<button class="btn" data-payout-id="'+esc(e.id)+'" data-driver="'+esc(e.driver_name)+'" data-amount="'+esc(e.driver_earnings_kobo)+'">Mark paid</button>':'—')+'</td></tr>').join('');
+  document.querySelector('#ledger-rows').innerHTML=ledgerEntries.map(e=>'<tr><td>'+esc(e.service_date)+'</td><td>'+esc(e.driver_name)+'<br><small>'+esc(e.driver_id)+'</small></td><td>'+esc(e.ride_reference)+'</td><td>'+esc(e.route_text||'Route not recorded')+'</td><td>'+money(e.fare_kobo)+'</td><td><strong>'+money(e.driver_earnings_kobo)+'</strong></td><td>'+money(e.platform_commission_kobo)+'</td><td><span class="badge '+esc(e.payout_status)+'">'+esc(e.payout_status)+'</span>'+(e.paid_out_at?'<br><small>'+date(e.paid_out_at)+'</small>':'')+'</td><td>'+esc(e.payout_reference)+'</td><td>'+(e.payout_status==='UNPAID'?'<span class="muted">Use batch payout below</span>':'—')+'</td></tr>').join('');
+  renderBatchPayoutOptions(body.drivers||[]);
   document.querySelector('#ledger-table').hidden=!ledgerEntries.length;
   msg.textContent=ledgerEntries.length?'Showing '+ledgerEntries.length+' paid trip entries. Totals reflect the selected date and filters.':'No paid trips found for this date and filter.';
  }catch(e){msg.textContent=e.message||'Unable to load driver ledger.';msg.hidden=false}
  finally{ledgerLoadInFlight=false}
 }
 document.querySelector('#ledger-rows').addEventListener('click',async ev=>{const b=ev.target.closest('[data-payout-id]');if(!b)return;const driver=b.dataset.driver,amount=money(b.dataset.amount);if(!confirm('Confirm that you have already transferred '+amount+' to '+driver+'? This only records the payout; it does not move money.'))return;const ref=prompt('Enter the bank transfer reference / transaction ID:');if(!ref||!ref.trim())return;const note=prompt('Optional payout note (bank and transfer details):')||'';b.disabled=true;try{await api('/api/driver-earnings/'+encodeURIComponent(b.dataset.payoutId)+'/payout',{method:'POST',body:JSON.stringify({payoutReference:ref.trim(),payoutNote:note})});await loadLedger()}catch(e){alert(e.message)}finally{b.disabled=false}});
+function renderBatchPayoutOptions(drivers){
+ const current=document.querySelector('#payout-driver').value;
+ const select=document.querySelector('#payout-driver');
+ const items=[...new Map((drivers||[]).map(d=>[d.driverId,d])).values()];
+ select.innerHTML='<option value="">Select driver</option>'+items.map(d=>'<option value="'+esc(d.driverId)+'">'+esc(d.driverName)+' ('+esc(d.driverId)+')</option>').join('');
+ select.value=current;
+}
+document.querySelector('#payout-date').value=today();
+document.querySelector('#record-batch-payout').addEventListener('click',async()=>{
+ const driverId=document.querySelector('#payout-driver').value;
+ const serviceDate=document.querySelector('#payout-date').value||document.querySelector('#ledger-date').value;
+ const payoutReference=document.querySelector('#payout-reference').value.trim();
+ const payoutNote=document.querySelector('#payout-note').value.trim();
+ const feedback=document.querySelector('#payout-message');
+ if(!driverId||!serviceDate||!payoutReference){feedback.textContent='Select a driver and service date, and enter the actual bank transfer reference.';return}
+ const matching=ledgerEntries.filter(e=>e.driver_id===driverId&&e.service_date===serviceDate&&e.payout_status==='UNPAID');
+ if(matching.length===0){feedback.textContent='No unpaid trip entries currently loaded for this driver and date. Refresh/select matching filters first.';return}
+ const amountKobo=matching.reduce((sum,e)=>sum+Number(e.driver_earnings_kobo||0),0);
+ const driverName=matching[0].driver_name||driverId;
+ if(!confirm('Have you already transferred '+money(amountKobo)+' to '+driverName+' for '+serviceDate+'?\n\nThis records the payout only; it does not move money.'))return;
+ const button=document.querySelector('#record-batch-payout');button.disabled=true;feedback.textContent='Recording payout…';
+ try{
+  const result=await api('/api/driver-earnings/payout-batch',{method:'POST',body:JSON.stringify({driverId,serviceDate,payoutReference,payoutNote})});
+  feedback.textContent='Recorded '+result.tripCount+' trips for '+driverName+'. Amount: '+money(result.amountKobo)+'. Reference: '+result.payoutReference;
+  document.querySelector('#ledger-date').value=serviceDate;document.querySelector('#ledger-driver').value=driverId;document.querySelector('#ledger-status').value='';
+  await loadLedger();
+ }catch(e){feedback.textContent=e.message||'Payout could not be recorded. Verify bank statement and refresh before retrying.'}
+ finally{button.disabled=false}
+});
+document.querySelector('#payout-driver').addEventListener('change',()=>{
+ document.querySelector('#ledger-driver').value=document.querySelector('#payout-driver').value;
+ document.querySelector('#ledger-date').value=document.querySelector('#payout-date').value||today();
+ document.querySelector('#ledger-status').value='UNPAID';loadLedger();
+});
+document.querySelector('#payout-date').addEventListener('change',()=>{
+ document.querySelector('#ledger-date').value=document.querySelector('#payout-date').value;
+ document.querySelector('#ledger-status').value='UNPAID';loadLedger();
+});
+
 document.querySelector('#ledger-refresh').addEventListener('click',loadLedger);
 document.querySelector('#ledger-date').addEventListener('change',loadLedger);
 document.querySelector('#ledger-driver').addEventListener('change',loadLedger);
