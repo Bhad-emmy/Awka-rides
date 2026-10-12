@@ -7,43 +7,82 @@
 <style>
 :root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#172033;background:#f4f7fb}
 *{box-sizing:border-box}body{margin:0}.top{background:#0f172a;color:#fff;padding:18px max(4%,calc((100% - 1200px)/2));display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{font-weight:800;letter-spacing:.04em}.wrap{max-width:1200px;margin:28px auto;padding:0 18px}.head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:#64748b}.btn{display:inline-block;border:0;border-radius:8px;padding:10px 14px;font-weight:700;text-decoration:none;cursor:pointer;background:#e2e8f0;color:#172033}.panel{background:white;border:1px solid #e2e8f0;border-radius:12px;padding:18px;margin-top:18px;overflow:auto}.summary{display:flex;gap:12px;flex-wrap:wrap}.metric{padding:14px;border:1px solid #e2e8f0;border-radius:9px;min-width:150px}.metric strong{display:block;font-size:22px;margin-top:4px}table{border-collapse:collapse;width:100%;min-width:900px}th,td{text-align:left;padding:12px;border-bottom:1px solid #e2e8f0;font-size:13px}th{background:#f8fafc;color:#475569}code{overflow-wrap:anywhere}.status{font-weight:800}.status.PAID{color:#15803d}.status.PENDING{color:#b45309}.status.FAILED{color:#b91c1c}.message{padding:14px;color:#475569}
+
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.tab{background:#e2e8f0;color:#172033;border:0;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer}.tab.active{background:#0f172a;color:#fff}.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.filters label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:#475569}.filters input,.filters select{min-width:155px;border:1px solid #cbd5e1;border-radius:8px;padding:10px}.badge{font-weight:800}.badge.UNPAID{color:#b45309}.badge.PAID{color:#15803d}.summary{margin-top:16px}
 </style>
 </head>
 <body>
 <header class="top"><div class="brand">ỌKA-RIDES · PAYMENTS</div><a class="btn" href="/dispatcher.html">Back to dispatcher</a></header>
 <main class="wrap">
-<div class="head"><div><h1>Payment records</h1><p class="muted">Verified Paystack payments and dispatcher-recorded offline payments.</p></div><button class="btn" id="refresh">Refresh records</button></div>
-<div class="summary"><div class="metric">Paid transactions<strong id="paid-count">—</strong></div><div class="metric">Paid total<strong id="paid-total">—</strong></div><div class="metric">All records<strong id="record-count">—</strong></div></div>
+<div class="head"><div><h1>Payment records</h1><p class="muted">Payment history, per-trip driver earnings and daily payout reconciliation. Driver share: 85%; platform commission: 15%.</p></div><button class="btn" id="refresh">Refresh records</button></div>
+<div class="tabs"><button class="tab active" data-tab="earnings">Driver trip ledger</button><button class="tab" data-tab="payments">Payment records</button></div>
+<section id="earnings-view">
+ <div class="filters panel">
+  <label>Service date<input type="date" id="ledger-date"></label>
+  <label>Driver<select id="ledger-driver"><option value="">All drivers</option></select></label>
+  <label>Payout status<select id="ledger-status"><option value="">All payouts</option><option value="UNPAID">Unpaid only</option><option value="PAID">Paid out</option></select></label>
+  <button class="btn" id="ledger-refresh">Refresh ledger</button>
+ </div>
+ <div class="summary">
+  <div class="metric">Trips<strong id="trip-count">—</strong></div>
+  <div class="metric">Total fares<strong id="fare-total">—</strong></div>
+  <div class="metric">Drivers' 85% share<strong id="driver-total">—</strong></div>
+  <div class="metric">MEKA LOGIC 15%<strong id="commission-total">—</strong></div>
+  <div class="metric">Still to pay<strong id="unpaid-total">—</strong></div>
+ </div>
+ <section class="panel"><div id="ledger-message" class="message">Loading driver ledger…</div>
+ <table id="ledger-table" hidden><thead><tr><th>Service date</th><th>Driver</th><th>Trip</th><th>Route</th><th>Fare</th><th>Driver 85%</th><th>Platform 15%</th><th>Payout status</th><th>Payout reference</th><th>Action</th></tr></thead><tbody id="ledger-rows"></tbody></table></section>
+</section>
+<section id="payments-view" hidden>
+ <div class="summary"><div class="metric">Paid transactions<strong id="paid-count">—</strong></div><div class="metric">Paid total<strong id="paid-total">—</strong></div><div class="metric">All records<strong id="record-count">—</strong></div></div>
+ <section class="panel"><div id="message" class="message">Loading payment records…</div><table id="table" hidden><thead><tr><th>Date created</th><th>Ride</th><th>Method</th><th>Amount</th><th>Status</th><th>Payment reference</th><th>Paid at</th></tr></thead><tbody id="rows"></tbody></table></section>
+</section>
 <section class="panel"><div id="message" class="message">Loading payment records…</div><table id="table" hidden><thead><tr><th>Date created</th><th>Ride</th><th>Method</th><th>Amount</th><th>Status</th><th>Payment reference</th><th>Paid at</th></tr></thead><tbody id="rows"></tbody></table></section>
 </main>
 <script>
 const money=kobo=>'₦'+(Number(kobo||0)/100).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=v=>{if(!v)return '—';const d=new Date(v);return Number.isNaN(d.getTime())?esc(v):esc(d.toLocaleString())};
-let paymentLoadInFlight=false;
-async function load(silent=false){
- if(paymentLoadInFlight||document.hidden&&silent)return;
- paymentLoadInFlight=true;
- const msg=document.querySelector('#message'),table=document.querySelector('#table');
- if(!silent){msg.hidden=false;msg.textContent='Loading payment records…';if(!document.querySelector('#rows').children.length)table.hidden=true}
+let paymentLoadInFlight=false, ledgerLoadInFlight=false, ledgerEntries=[];
+const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+document.querySelector('#ledger-date').value=today();
+async function api(url,options={}){const res=await fetch(url,{credentials:'include',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const body=await res.json().catch(()=>({}));if(res.status===401){location.href='/dispatcher.html';throw new Error('Dispatcher session expired')}if(!res.ok)throw new Error(body.detail||'Request failed');return body}
+function activateTab(tab){document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelector('#earnings-view').hidden=tab!=='earnings';document.querySelector('#payments-view').hidden=tab!=='payments';if(tab==='payments')loadPayments();else loadLedger()}
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>activateTab(b.dataset.tab)));
+async function loadLedger(){
+ if(ledgerLoadInFlight)return;ledgerLoadInFlight=true;
+ const msg=document.querySelector('#ledger-message');
+ msg.hidden=false;msg.textContent='Loading driver trip ledger…';
  try{
-  const res=await fetch('/api/payment-records',{credentials:'include'});
-  if(res.status===401){location.href='/dispatcher.html';return}
-  const body=await res.json();
-  if(!res.ok)throw new Error(body.detail||'Could not load payment records');
-  const payments=body.payments||[];
-  document.querySelector('#record-count').textContent=payments.length;
-  const paid=payments.filter(p=>p.status==='PAID');
-  document.querySelector('#paid-count').textContent=paid.length;
-  document.querySelector('#paid-total').textContent=money(paid.reduce((sum,p)=>sum+Number(p.amount_kobo||0),0));
-  document.querySelector('#rows').innerHTML=payments.map(p=>'<tr><td>'+date(p.created_at)+'</td><td><a href="/dispatcher.html">'+esc(p.ride_reference)+'</a></td><td>'+esc(p.method)+'</td><td>'+money(p.amount_kobo)+'</td><td><span class="status '+esc(p.status)+'">'+esc(p.status)+'</span></td><td><code>'+esc(p.reference)+'</code></td><td>'+date(p.paid_at)+'</td></tr>').join('');
-  msg.textContent=payments.length?'Showing '+payments.length+' payment records.':'No payment records have been recorded yet.';
-  msg.hidden=false;table.hidden=!payments.length;
- }catch(e){if(!silent||!document.querySelector('#rows').children.length){msg.textContent=e.message||'Unable to load payment records.';msg.hidden=false}}
- finally{paymentLoadInFlight=false}
+  const q=new URLSearchParams();if(document.querySelector('#ledger-date').value)q.set('date',document.querySelector('#ledger-date').value);if(document.querySelector('#ledger-driver').value)q.set('driver_id',document.querySelector('#ledger-driver').value);if(document.querySelector('#ledger-status').value)q.set('payout_status',document.querySelector('#ledger-status').value);
+  const body=await api('/api/driver-earnings?'+q.toString());ledgerEntries=body.entries||[];
+  const oldDriver=document.querySelector('#ledger-driver').value,driverSelect=document.querySelector('#ledger-driver');
+  const drivers=body.drivers||[];driverSelect.innerHTML='<option value="">All drivers</option>'+drivers.map(d=>'<option value="'+esc(d.driverId)+'">'+esc(d.driverName)+' ('+esc(d.driverId)+')</option>').join('');
+  driverSelect.value=oldDriver;
+  document.querySelector('#trip-count').textContent=ledgerEntries.length;
+  document.querySelector('#fare-total').textContent=money(ledgerEntries.reduce((s,e)=>s+Number(e.fare_kobo||0),0));
+  document.querySelector('#driver-total').textContent=money(ledgerEntries.reduce((s,e)=>s+Number(e.driver_earnings_kobo||0),0));
+  document.querySelector('#commission-total').textContent=money(ledgerEntries.reduce((s,e)=>s+Number(e.platform_commission_kobo||0),0));
+  document.querySelector('#unpaid-total').textContent=money(ledgerEntries.filter(e=>e.payout_status==='UNPAID').reduce((s,e)=>s+Number(e.driver_earnings_kobo||0),0));
+  document.querySelector('#ledger-rows').innerHTML=ledgerEntries.map(e=>'<tr><td>'+esc(e.service_date)+'</td><td>'+esc(e.driver_name)+'<br><small>'+esc(e.driver_id)+'</small></td><td>'+esc(e.ride_reference)+'</td><td>'+esc(e.route_text||'Route not recorded')+'</td><td>'+money(e.fare_kobo)+'</td><td><strong>'+money(e.driver_earnings_kobo)+'</strong></td><td>'+money(e.platform_commission_kobo)+'</td><td><span class="badge '+esc(e.payout_status)+'">'+esc(e.payout_status)+'</span>'+(e.paid_out_at?'<br><small>'+date(e.paid_out_at)+'</small>':'')+'</td><td>'+esc(e.payout_reference)+'</td><td>'+(e.payout_status==='UNPAID'?'<button class="btn" data-payout-id="'+esc(e.id)+'" data-driver="'+esc(e.driver_name)+'" data-amount="'+esc(e.driver_earnings_kobo)+'">Mark paid</button>':'—')+'</td></tr>').join('');
+  document.querySelector('#ledger-table').hidden=!ledgerEntries.length;
+  msg.textContent=ledgerEntries.length?'Showing '+ledgerEntries.length+' paid trip entries. Totals reflect the selected date and filters.':'No paid trips found for this date and filter.';
+ }catch(e){msg.textContent=e.message||'Unable to load driver ledger.';msg.hidden=false}
+ finally{ledgerLoadInFlight=false}
 }
-document.querySelector('#refresh').addEventListener('click',()=>load());load();
-setInterval(()=>load(true),5000);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)load(true)});
+document.querySelector('#ledger-rows').addEventListener('click',async ev=>{const b=ev.target.closest('[data-payout-id]');if(!b)return;const driver=b.dataset.driver,amount=money(b.dataset.amount);if(!confirm('Confirm that you have already transferred '+amount+' to '+driver+'? This only records the payout; it does not move money.'))return;const ref=prompt('Enter the bank transfer reference / transaction ID:');if(!ref||!ref.trim())return;const note=prompt('Optional payout note (bank and transfer details):')||'';b.disabled=true;try{await api('/api/driver-earnings/'+encodeURIComponent(b.dataset.payoutId)+'/payout',{method:'POST',body:JSON.stringify({payoutReference:ref.trim(),payoutNote:note})});await loadLedger()}catch(e){alert(e.message)}finally{b.disabled=false}});
+document.querySelector('#ledger-refresh').addEventListener('click',loadLedger);
+document.querySelector('#ledger-date').addEventListener('change',loadLedger);
+document.querySelector('#ledger-driver').addEventListener('change',loadLedger);
+document.querySelector('#ledger-status').addEventListener('change',loadLedger);
+async function loadPayments(silent=false){
+ if(paymentLoadInFlight||document.hidden&&silent)return;paymentLoadInFlight=true;
+ const msg=document.querySelector('#message'),table=document.querySelector('#table');if(!silent){msg.hidden=false;msg.textContent='Loading payment records…';if(!document.querySelector('#rows').children.length)table.hidden=true}
+ try{const body=await api('/api/payment-records');const payments=body.payments||[];document.querySelector('#record-count').textContent=payments.length;const paid=payments.filter(p=>p.status==='PAID');document.querySelector('#paid-count').textContent=paid.length;document.querySelector('#paid-total').textContent=money(paid.reduce((s,p)=>s+Number(p.amount_kobo||0),0));document.querySelector('#rows').innerHTML=payments.map(p=>'<tr><td>'+date(p.created_at)+'</td><td><a href="/dispatcher.html">'+esc(p.ride_reference)+'</a></td><td>'+esc(p.method)+'</td><td>'+money(p.amount_kobo)+'</td><td><span class="badge '+esc(p.status)+'">'+esc(p.status)+'</span></td><td><code>'+esc(p.reference)+'</code></td><td>'+date(p.paid_at)+'</td></tr>').join('');msg.textContent=payments.length?'Showing '+payments.length+' payment records.':'No payment records have been recorded yet.';msg.hidden=false;table.hidden=!payments.length}catch(e){if(!silent||!document.querySelector('#rows').children.length){msg.textContent=e.message||'Unable to load payment records.';msg.hidden=false}}finally{paymentLoadInFlight=false}
+}
+document.querySelector('#refresh').addEventListener('click',()=>loadPayments());
+loadLedger();
+setInterval(()=>{if(!document.querySelector('#payments-view').hidden)loadPayments(true);else if(!document.hidden)loadLedger()},15000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(document.querySelector('#payments-view').hidden)loadLedger();else loadPayments(true)}});
 </script>
 </body></html>
