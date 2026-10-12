@@ -13,6 +13,7 @@ from backend.main_supabase import (
     validate_paystack_transaction,
     paystack_split_config,
     validate_paystack_subaccount_for_current_key,
+    split_fare_kobo,
 )
 
 
@@ -93,21 +94,23 @@ class PaystackHelperTests(unittest.TestCase):
         self.assertFalse(paystack_signature_is_valid(body, "bad", secret))
         self.assertFalse(paystack_signature_is_valid(body, None, secret))
 
-    def test_split_config_routes_85_percent_to_driver_and_platform_keeps_15_percent(self):
-        config = paystack_split_config({"paystack_subaccount_code": "ACCT_DRIVER123"})
-        self.assertEqual(config, {
-            "split": {
-                "type": "percentage",
-                "bearer_type": "account",
-                "subaccounts": [{"subaccount": "ACCT_DRIVER123", "share": 85}],
-            },
-        })
+    def test_fare_ledger_splits_fare_85_15(self):
+        driver, platform = split_fare_kobo(150050)
+        self.assertEqual(driver, 127543)
+        self.assertEqual(platform, 22507)
+        self.assertEqual(driver + platform, 150050)
 
-    def test_split_config_rejects_missing_or_invalid_subaccount(self):
-        for driver in ({}, {"paystack_subaccount_code": "invalid"}):
-            with self.subTest(driver=driver):
-                with self.assertRaises(HTTPException):
-                    paystack_split_config(driver)
+    def test_fare_ledger_splits_odd_kobo_without_losing_money(self):
+        driver, platform = split_fare_kobo(101)
+        self.assertEqual(driver, 86)
+        self.assertEqual(platform, 15)
+        self.assertEqual(driver + platform, 101)
+
+    def test_fare_ledger_rejects_non_positive_fare(self):
+        for amount in (0, -1):
+            with self.subTest(amount=amount):
+                with self.assertRaises(ValueError):
+                    split_fare_kobo(amount)
 
     def test_valid_transaction_matches_ride(self):
         validate_paystack_transaction(self.transaction, self.ride, "OKA-TEST-123")
