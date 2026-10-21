@@ -69,8 +69,10 @@ class DriverEarningsLedgerTests(unittest.IsolatedAsyncioTestCase):
             "payment_method": "PAYSTACK",
             "payment_reference": "OKA-PAY-123",
         }
-        with patch("backend.main_supabase.get_customer_ride", new=AsyncMock(return_value=ride)), \\
-             patch("backend.main_supabase.record_driver_earning", new=AsyncMock(return_value={"id": "earning-1"})) as record:
+        with patch("backend.main_supabase.get_customer_ride", new=AsyncMock(return_value=ride)), patch(
+            "backend.main_supabase.record_driver_earning",
+            new=AsyncMock(return_value={"id": "earning-1"}),
+        ) as record:
             result = await verify_customer_paystack_payment(
                 PaystackVerifyRequest(reference="OKA-PAY-123"),
                 reference="OKA-123",
