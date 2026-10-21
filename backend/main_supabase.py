@@ -1467,6 +1467,9 @@ async def mark_driver_earnings_paid_out(
         date.fromisoformat(payout.earningDate)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Date must use YYYY-MM-DD format.") from exc
+    payout_reference = payout.payoutReference.strip()
+    if not payout_reference:
+        raise HTTPException(status_code=422, detail="Payout reference cannot be blank.")
     rows = await supabase_request(
         "PATCH", "oka_rides_driver_earnings",
         params={
@@ -1476,7 +1479,7 @@ async def mark_driver_earnings_paid_out(
         },
         json_body={
             "status": "PAID_OUT",
-            "payout_reference": payout.payoutReference.strip(),
+            "payout_reference": payout_reference,
             "paid_out_at": datetime.now(timezone.utc).isoformat(),
             "paid_out_by": dispatcher_id,
         },
@@ -1487,11 +1490,11 @@ async def mark_driver_earnings_paid_out(
     total_kobo = sum(int(row.get("driver_earning_kobo") or 0) for row in rows)
     await write_audit_log(
         "dispatcher", dispatcher_id, "driver.earnings_paid_out", "driver",
-        payout.driverId, {"earning_date": payout.earningDate, "payout_reference": payout.payoutReference.strip(),
+        payout.driverId, {"earning_date": payout.earningDate, "payout_reference": payout_reference,
                           "ride_count": len(rows), "amount_kobo": total_kobo},
     )
     return {"success": True, "driverId": payout.driverId, "earningDate": payout.earningDate,
-            "rideCount": len(rows), "amountKobo": total_kobo, "payoutReference": payout.payoutReference.strip()}
+            "rideCount": len(rows), "amountKobo": total_kobo, "payoutReference": payout_reference}
 
 
 @app.get("/api/payment-records")
@@ -2652,7 +2655,11 @@ async def record_driver_earning(ride: dict, payment_reference: str, payment_meth
         row = existing[0]
         if str(row.get("payment_reference") or "") != payment_reference:
             raise HTTPException(status_code=409, detail="This ride already has an earning entry for a different payment reference.")
-        if str(row.get("driver_id") or "") != driver_id or int(row.get("fare_kobo") or 0) != fare_kobo:
+        if (
+            str(row.get("driver_id") or "") != driver_id
+            or int(row.get("fare_kobo") or 0) != fare_kobo
+            or str(row.get("payment_method") or "").upper() != str(payment_method or "").upper()
+        ):
             raise HTTPException(status_code=409, detail="The paid ride no longer matches its recorded driver earning.")
         return row
 
@@ -2686,8 +2693,15 @@ async def record_driver_earning(ride: dict, payment_reference: str, payment_meth
             params={"select": "*", "ride_id": f"eq.{ride_id}", "limit": "1"},
             action_description="driver earning retry lookup",
         )
-        if existing and str(existing[0].get("payment_reference") or "") == payment_reference:
-            return existing[0]
+        if existing:
+            row = existing[0]
+            if (
+                str(row.get("payment_reference") or "") == payment_reference
+                and str(row.get("driver_id") or "") == driver_id
+                and int(row.get("fare_kobo") or 0) == fare_kobo
+                and str(row.get("payment_method") or "").upper() == str(payment_method or "").upper()
+            ):
+                return row
         raise
 
 
