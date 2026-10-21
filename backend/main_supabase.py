@@ -2496,6 +2496,13 @@ async def record_payment_ledger(ride: dict, reference: str, amount_kobo: int, me
         record = existing[0]
         if str(record.get("ride_id")) != str(ride.get("id")) or int(record.get("amount_kobo") or 0) != int(amount_kobo):
             raise HTTPException(status_code=409, detail="Payment reference is already linked to a different payment.")
+        # A reference must not silently change payment rail/provider on retry.
+        # This protects the audit ledger when an offline reference collides with
+        # a Paystack reference (or when a retry is sent to the wrong handler).
+        existing_method = str(record.get("method") or "").strip().upper()
+        requested_method = str(method or "").strip().upper()
+        if existing_method and existing_method != requested_method:
+            raise HTTPException(status_code=409, detail="Payment reference is already recorded with a different payment method.")
         if record.get("status") == "PAID" and status != "PAID":
             return record
         rows = await supabase_request("PATCH", "oka_rides_payment_records",
@@ -2613,6 +2620,14 @@ async def initialize_paystack_payment(
         raise
     authorization_url = checkout.get("authorization_url")
     if not authorization_url or not str(authorization_url).startswith("https://checkout.paystack.com/"):
+        # Do not leave a dead reference attached to the ride when Paystack
+        # returns an unusable checkout URL; allow a clean retry.
+        await supabase_request(
+            "PATCH", SUPABASE_TABLE_RIDES,
+            params={"id": f"eq.{ride.get('id')}", "payment_reference": f"eq.{payment_reference}"},
+            json_body={"payment_reference": None, "payment_method": None, "payment_status": "PENDING"},
+            action_description="Paystack invalid checkout rollback",
+        )
         raise HTTPException(status_code=502, detail="Paystack did not return a valid checkout URL.")
     return {"authorizationUrl": authorization_url, "reference": payment_reference, "amount": amount, "currency": "NGN"}
 
