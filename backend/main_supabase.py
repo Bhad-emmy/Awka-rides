@@ -2382,6 +2382,23 @@ async def verify_payment(
     _: str = Depends(require_dispatcher_session),
 ):
     ride = await get_ride_record(ride_id)
+    # A retry after the ride was marked paid must also repair a missing earnings
+    # row. This can happen if a previous request failed between payment finalization
+    # and writing the driver ledger.
+    if (
+        payment.paymentStatus == "PAID"
+        and ride.get("status") == "PAID"
+        and ride.get("payment_status") == "PAID"
+        and ride.get("payment_method") == "OPAY"
+        and ride.get("payment_reference") == payment.paymentReference.strip()
+    ):
+        await record_driver_earning(ride, payment.paymentReference.strip(), "OFFLINE")
+        return {
+            "success": True,
+            "rideId": ride_id,
+            "paymentStatus": "PAID",
+            "rideStatus": "PAID",
+        }
     if ride.get("status") != "DRIVER ASSIGNED":
         raise HTTPException(status_code=409, detail="Payment can only be verified for DRIVER ASSIGNED rides.")
     if not ride.get("fare") or ride.get("fare_confirmed") is not True:
@@ -2699,6 +2716,9 @@ async def finalize_paystack_payment(ride: dict, reference: str, transaction: dic
     if not rows:
         current = await get_ride_record(str(ride.get("id")))
         if current.get("payment_status") == "PAID" and current.get("status") == "PAID" and current.get("payment_reference") == reference:
+            # Another callback/verification request may have won the ride update
+            # but failed before inserting the earning row. Repair it idempotently.
+            await record_driver_earning(current, reference, "PAYSTACK")
             return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
         raise HTTPException(status_code=409, detail="Payment record saved but ride state changed. Dispatcher reconciliation is required.")
     await record_driver_earning(ride, reference, "PAYSTACK")
@@ -2784,6 +2804,8 @@ async def verify_customer_paystack_payment(
 ):
     ride = await get_customer_ride(reference, customer_id)
     if ride.get("payment_status") == "PAID" and ride.get("status") == "PAID" and ride.get("payment_reference") == body.reference:
+        # Do not let the idempotent response skip earnings-ledger recovery.
+        await record_driver_earning(ride, body.reference, "PAYSTACK")
         return {"success": True, "paymentStatus": "PAID", "rideStatus": "PAID"}
     if ride.get("status") != "DRIVER ASSIGNED" or ride.get("fare_confirmed") is not True:
         raise HTTPException(status_code=409, detail="Ride is not eligible for payment verification.")
