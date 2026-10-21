@@ -15,6 +15,8 @@ from backend.main_supabase import (
     calculate_driver_earning,
     record_driver_earning,
     validate_paystack_subaccount_for_current_key,
+    PaystackVerifyRequest,
+    verify_customer_paystack_payment,
 )
 
 
@@ -53,6 +55,29 @@ class DriverEarningsLedgerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as caught:
                 await record_driver_earning(ride, "OKA-PAY-123", "PAYSTACK")
         self.assertEqual(caught.exception.status_code, 409)
+
+    async def test_already_paid_paystack_retry_repairs_missing_earning_row(self):
+        ride = {
+            "id": "ride-123",
+            "reference": "OKA-123",
+            "driver_id": "driver-7",
+            "driver_name": "Test Driver",
+            "fare": 1500.50,
+            "fare_confirmed": True,
+            "status": "PAID",
+            "payment_status": "PAID",
+            "payment_method": "PAYSTACK",
+            "payment_reference": "OKA-PAY-123",
+        }
+        with patch("backend.main_supabase.get_customer_ride", new=AsyncMock(return_value=ride)), \\
+             patch("backend.main_supabase.record_driver_earning", new=AsyncMock(return_value={"id": "earning-1"})) as record:
+            result = await verify_customer_paystack_payment(
+                PaystackVerifyRequest(reference="OKA-PAY-123"),
+                reference="OKA-123",
+                customer_id="customer-1",
+            )
+        self.assertTrue(result["success"])
+        record.assert_awaited_once_with(ride, "OKA-PAY-123", "PAYSTACK")
 
 
 class PaystackSubaccountEnvironmentTests(unittest.IsolatedAsyncioTestCase):
