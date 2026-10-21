@@ -34,6 +34,7 @@ html:has(.splash-screen.active),body:has(.splash-screen.active){overflow:hidden!
 /* Give the customer app a comfortable desktop canvas while preserving its mobile layout. */
 @media (min-width: 1024px) {
   .app-shell {
+    width: min(1180px, calc(100vw - 48px));
     max-width: 1180px;
     margin: 24px auto;
     min-height: calc(100vh - 48px);
