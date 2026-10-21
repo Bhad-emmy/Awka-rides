@@ -12,8 +12,47 @@ from backend.main_supabase import (
     paystack_signature_is_valid,
     validate_paystack_transaction,
     paystack_split_config,
+    calculate_driver_earning,
+    record_driver_earning,
     validate_paystack_subaccount_for_current_key,
 )
+
+
+class DriverEarningsLedgerTests(unittest.IsolatedAsyncioTestCase):
+    def test_driver_share_uses_existing_85_15_policy_and_balances_exactly(self):
+        self.assertEqual(calculate_driver_earning(150050), (127543, 22507))
+        self.assertEqual(calculate_driver_earning(100), (85, 15))
+        with self.assertRaises(ValueError):
+            calculate_driver_earning(0)
+
+    async def test_record_driver_earning_is_idempotent_for_same_paid_ride(self):
+        ride = {
+            "id": "ride-123", "reference": "OKA-123", "driver_id": "driver-7",
+            "driver_name": "Test Driver", "fare": 1500.50,
+        }
+        existing = [{
+            "id": "earning-1", "ride_id": "ride-123", "driver_id": "driver-7",
+            "fare_kobo": 150050, "payment_reference": "OKA-PAY-123",
+            "driver_earning_kobo": 127543, "platform_commission_kobo": 22507,
+            "status": "UNPAID",
+        }]
+        with patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=existing)) as request:
+            result = await record_driver_earning(ride, "OKA-PAY-123", "PAYSTACK")
+        self.assertEqual(result["id"], "earning-1")
+        request.assert_awaited_once()
+
+    async def test_record_driver_earning_rejects_reference_mismatch(self):
+        ride = {
+            "id": "ride-123", "reference": "OKA-123", "driver_id": "driver-7",
+            "driver_name": "Test Driver", "fare": 1500.50,
+        }
+        with patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=[{
+            "ride_id": "ride-123", "driver_id": "driver-7", "fare_kobo": 150050,
+            "payment_reference": "ANOTHER-REFERENCE",
+        }])):
+            with self.assertRaises(HTTPException) as caught:
+                await record_driver_earning(ride, "OKA-PAY-123", "PAYSTACK")
+        self.assertEqual(caught.exception.status_code, 409)
 
 
 class PaystackSubaccountEnvironmentTests(unittest.IsolatedAsyncioTestCase):
