@@ -1415,7 +1415,7 @@ async def list_rides(
 
 class DriverPayoutRequest(BaseModel):
     driverId: str = Field(min_length=1, max_length=120)
-    earningDate: str = Field(pattern=r"^\\d{4}-\\d{2}-\\d{2}$")
+    earningDate: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     payoutReference: str = Field(min_length=1, max_length=120)
 
 
