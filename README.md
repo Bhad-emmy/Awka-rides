@@ -4,7 +4,7 @@
 
 Ọka-Rides connects customers who need rides with a dispatcher who manages incoming requests, assigns verified drivers, confirms fares and payments, and tracks the ride through its lifecycle.
 
-**Production:** https://oka-rides.vercel.app/
+**Production:** https://www.okarides.com.ng/
 
 ## What Ọka-Rides Does
 
@@ -99,7 +99,7 @@ Supabase             Termii
 | Hosting | Vercel |
 | Maps | Leaflet + OpenStreetMap |
 | Driver SMS | Termii |
-| Payment | Paystack hosted checkout (test mode until approved) |
+| Payment | Paystack hosted checkout (requires a configured test/live secret key) |
 | Version control | Git + GitHub |
 
 ## Paystack setup
@@ -109,15 +109,15 @@ Paystack checkout is implemented using the hosted checkout flow. The secret key 
 Set these Vercel environment variables for the deployment you are testing:
 
 - `PAYSTACK_SECRET_KEY`: Paystack **test** secret key (`sk_test_...`) for initial testing.
-- `PAYSTACK_CALLBACK_URL` (optional): frontend origin, for example `https://oka-rides.vercel.app`. If omitted, the API uses the allowed request origin.
+- `PAYSTACK_CALLBACK_URL` (optional): customer-facing callback origin. Production should use `https://www.okarides.com.ng`; if omitted, the API uses an allowed request origin.
 
 No public key is required for this hosted-checkout implementation because the browser is redirected to Paystack's authorization URL. Add the webhook in Paystack **Settings → API Keys & Webhooks**:
 
 ```
-https://oka-rides.vercel.app/api/payments/paystack/webhook
+https://www.okarides.com.ng/api/payments/paystack/webhook
 ```
 
-Replace the domain if the active production domain differs. The webhook validates `x-paystack-signature`, then verifies the transaction with Paystack before updating a ride. The amount must match the confirmed fare in NGN, and the transaction metadata must identify the same ride. Do not use live keys until test checkout, callback verification, and webhook tests pass.
+The webhook validates `x-paystack-signature`, then verifies the transaction with Paystack before updating a ride. The amount must match the confirmed fare in NGN, and the transaction metadata must identify the same ride. Do not use live keys until test checkout, callback verification, and webhook tests pass.
 
 ## Payment records ledger
 
@@ -179,13 +179,13 @@ The Termii API key must remain server-side.
 
 The current V1 implementation sends the SMS when a driver is assigned.
 
-## Payment
+## Payment status and production readiness
 
-The live V1 payment method is **manual OPay**.
+Paystack hosted checkout is implemented in the customer ride flow. When a ride has an assigned driver, a confirmed fare, and an outstanding payment, the customer interface displays **Pay securely with Paystack**. The FastAPI backend initializes checkout, verifies transactions server-side, and handles signed Paystack webhooks. Offline payments can also be recorded by the dispatcher.
 
-Customers pay the official Ọka-Rides OPay account, and the dispatcher verifies the payment before advancing the ride.
+**Implementation does not mean production checkout is operational.** At the time of the latest configuration check, the Vercel Production `PAYSTACK_SECRET_KEY` variable exists but has an empty value. Therefore Paystack checkout/webhook verification cannot complete successfully in production until a valid key is configured. Do not expose the key in frontend code, README, logs, or Git. Configure a Paystack test secret key first, verify checkout/callback/webhook and payment-ledger behavior, and only then consider live mode.
 
-Paystack code remains in the backend as dormant infrastructure for later use; it is not the current customer payment flow.
+Manual OPay remains an available offline payment path where the dispatcher records and verifies payment. The customer-facing Paystack button is part of the implemented flow; do not describe Paystack as dormant or removed.
 
 ## Environment Variables
 
@@ -268,7 +268,7 @@ The project is connected to Vercel through GitHub.
 Main production domain:
 
 ```
-https://oka-rides.vercel.app/
+https://www.okarides.com.ng/
 ```
 
 The deployment uses:
