@@ -228,3 +228,6 @@ document.addEventListener("visibilitychange", () => {
 });
 
 (async()=>{const s=await restoreCustomerSession();await finishGoogleSignIn();const paymentCallbackHandled=await handlePaystackCallback();if(paymentCallbackHandled)return;if(!currentSession&&!s&&localStorage.getItem("okaSignedIn")!=="1")go("splash");else if(currentSession&&document.querySelector(".screen.active")?.dataset.screen==="splash")go("home")})();
+if (window.location.hash === "#") {
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+}
