@@ -179,6 +179,15 @@ The Termii API key must remain server-side.
 
 The current V1 implementation sends the SMS when a driver is assigned.
 
+## Driver earnings and end-of-day payouts
+
+The dispatcher has a **Driver earnings** page at `/driver-earnings.html`. After a ride is marked PAID through Paystack verification or the dispatcher's offline-payment workflow, the backend records one earning entry for that ride. Duplicate callbacks do not create duplicate entries.
+
+- The current earnings policy follows the existing Paystack split configuration: **85% of the fare to the driver and 15% platform commission**. Values are stored in kobo to avoid floating-point currency drift.
+- The page summarizes each Nigeria business date (`Africa/Lagos`) by driver and shows gross fare, driver share, platform commission, paid-out amount, and outstanding amount.
+- After the actual bank transfer, a dispatcher can record the payout reference to mark that driver's unpaid rides for the selected date as paid out. This is a ledger action only; it does **not** send money or initiate a bank transfer.
+- Before deploying this feature, apply `supabase/migrations/20261021190000_create_driver_earnings_ledger.sql` in the Supabase SQL Editor. The migration enables RLS; access is intended to be through the backend service-role API only. Do not enable direct browser access to the table.
+
 ## Payment status and production readiness
 
 Paystack hosted checkout is implemented in the customer ride flow. When a ride has an assigned driver, a confirmed fare, and an outstanding payment, the customer interface displays **Pay securely with Paystack**. The FastAPI backend initializes checkout, verifies transactions server-side, and handles signed Paystack webhooks. Offline payments can also be recorded by the dispatcher.
