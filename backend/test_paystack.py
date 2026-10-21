@@ -12,8 +12,32 @@ from backend.main_supabase import (
     paystack_signature_is_valid,
     validate_paystack_transaction,
     paystack_split_config,
+    record_payment_ledger,
     validate_paystack_subaccount_for_current_key,
 )
+
+
+class PaystackLedgerSafetyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_existing_reference_cannot_switch_payment_method(self):
+        existing = {
+            "id": "payment-1",
+            "ride_id": "ride-123",
+            "amount_kobo": 150050,
+            "method": "OFFLINE",
+            "status": "PAID",
+        }
+        with patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=[existing])):
+            with self.assertRaises(HTTPException) as caught:
+                await record_payment_ledger(
+                    {"id": "ride-123", "reference": "RIDE-123"},
+                    "SAME-REFERENCE",
+                    150050,
+                    "PAYSTACK",
+                    "PAID",
+                    {},
+                )
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("different payment method", caught.exception.detail)
 
 
 class PaystackSubaccountEnvironmentTests(unittest.IsolatedAsyncioTestCase):
