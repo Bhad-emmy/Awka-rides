@@ -303,7 +303,7 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         pin: $("#new-driver-pin").value,
         status: "ACTIVE",
         verificationStatus: "VERIFIED",
-        notes: "Created by dispatcher; active and verified by automatic account policy."
+        notes: "Registered by dispatcher after identity and vehicle checks."
     };
 
     if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || payload.pin.length < 4) {
@@ -323,7 +323,7 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         $("#new-driver-vehicle").value = "";
         $("#new-driver-plate").value = "";
         refreshGeneratedDriverId();
-        setFeedback(`Driver created successfully. Driver ID: ${result.driverId || driverId}. Account is ACTIVE and VERIFIED.`, true);
+        setFeedback(`Driver registered successfully. Driver ID: ${result.driverId || driverId}. Account is ACTIVE and VERIFIED.`, true);
         if (state.selectedRide) await loadDrivers();
     } catch (error) {
         setFeedback(error.message || "Could not create driver account. Check whether this generated ID already exists.");

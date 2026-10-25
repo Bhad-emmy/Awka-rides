@@ -42,7 +42,7 @@
         <div class="alert-banner" id="new-ride-alert" role="alert" aria-live="assertive" hidden><div><strong id="new-ride-alert-title">New ride request</strong><span id="new-ride-alert-body"></span></div><button class="button primary" id="view-new-ride-button" type="button">View ride</button><button class="button light" id="dismiss-new-ride-button" type="button" aria-label="Dismiss">Dismiss</button></div>
         <p class="feedback" id="feedback" role="alert" aria-live="polite"></p>
         <section class="panel details" aria-labelledby="create-driver-title" style="margin-bottom:18px">
-            <div class="details-top"><div><h2 id="create-driver-title">Create driver test account</h2><p>New accounts are automatically ACTIVE and VERIFIED.</p></div></div>
+            <div class="details-top"><div><h2 id="create-driver-title">Register driver</h2><p>Register only after checking the driver’s identity, phone number, vehicle and plate details. New accounts become ACTIVE and VERIFIED immediately.</p></div></div>
             <form id="create-driver-form">
                 <div class="driver-create-grid">
                     <label>Auto-generated Driver ID<input id="new-driver-id" name="driverId" readonly required></label>
@@ -52,8 +52,8 @@
                     <label>Plate number<input id="new-driver-plate" name="plateNumber" required maxlength="30" placeholder="ABC123XY" autocapitalize="characters"></label>
                     <label>Login PIN<input id="new-driver-pin" name="pin" type="password" inputmode="numeric" minlength="4" maxlength="12" autocomplete="new-password" required placeholder="4–12 characters"></label>
                 </div>
-                <p class="muted">New drivers are activated and verified automatically. Share the PIN securely and require drivers to keep it private.</p>
-                <div class="action-row"><button class="button primary" id="create-driver-button" type="submit">Create test driver</button><button class="button light" id="regenerate-driver-id" type="button">Generate new ID</button></div>
+                <p class="muted">This form activates the account immediately. Confirm the driver’s identity, vehicle and plate before registering. Share the PIN securely; drivers must keep it private.</p>
+                <div class="action-row"><button class="button primary" id="create-driver-button" type="submit">Register driver</button><button class="button light" id="regenerate-driver-id" type="button">Generate new ID</button></div>
             </form>
         </section>
         <div class="layout">
