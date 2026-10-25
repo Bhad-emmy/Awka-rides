@@ -16,9 +16,9 @@
     <div class="brand">ỌKA<span>-RIDES</span></div>
     <p class="eyebrow">DRIVER</p>
     <h1>Driver sign in</h1>
-    <p class="muted">Use the Driver ID and PIN provided by dispatch.</p>
+    <p class="muted">Sign in with the phone number you registered and your PIN.</p>
     <form id="login-form" class="card">
-      <label>Driver ID<input id="driver-id" autocomplete="username" required></label>
+      <label>Phone number<input id="driver-phone" type="tel" inputmode="tel" autocomplete="username" required minlength="7" maxlength="30" placeholder="Enter your registered phone number"></label>
       <label>PIN<input id="driver-pin" type="password" inputmode="numeric" autocomplete="current-password" minlength="4" required></label>
       <p id="login-message" class="message"></p>
       <button class="primary" type="submit">Sign in</button>
@@ -66,6 +66,6 @@
     </section>
   </section>
 </main>
-<script src="/driver.js?v=20261010-2"></script>
+<script src="/driver.js?v=20261025-phone-login-1"></script>
 </body>
 </html>
