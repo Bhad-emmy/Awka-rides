@@ -36,7 +36,7 @@ class DriverEarningsLedgerTests(unittest.IsolatedAsyncioTestCase):
             "id": "earning-1", "ride_id": "ride-123", "driver_id": "driver-7",
             "fare_kobo": 150050, "payment_reference": "OKA-PAY-123",
             "driver_earning_kobo": 127543, "platform_commission_kobo": 22507,
-            "status": "UNPAID",
+            "payment_method": "PAYSTACK", "status": "UNPAID",
         }]
         with patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=existing)) as request:
             result = await record_driver_earning(ride, "OKA-PAY-123", "PAYSTACK")
