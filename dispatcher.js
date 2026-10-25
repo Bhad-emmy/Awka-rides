@@ -323,7 +323,7 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         $("#new-driver-vehicle").value = "";
         $("#new-driver-plate").value = "";
         refreshGeneratedDriverId();
-        setFeedback(`Driver registered successfully. Driver ID: ${result.driverId || driverId}. Account is ACTIVE and VERIFIED.`, true);
+        setFeedback("Driver registered successfully. They can sign in with their phone number and PIN. Account is ACTIVE and VERIFIED.", true);
         if (state.selectedRide) await loadDrivers();
     } catch (error) {
         setFeedback(error.message || "Could not create driver account. Check whether this generated ID already exists.");

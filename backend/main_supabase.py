@@ -231,7 +231,7 @@ class DriverUpdate(BaseModel):
 
 
 class DriverLogin(BaseModel):
-    driverId: str = Field(min_length=1, max_length=80)
+    phone: str = Field(min_length=7, max_length=30)
     pin: str = Field(min_length=4, max_length=12)
 
 
@@ -531,6 +531,24 @@ async def get_driver_record(driver_id: str) -> dict:
     if not rows:
         raise HTTPException(status_code=404, detail="Driver not found.")
     return rows[0]
+
+async def find_driver_by_phone(phone: str) -> dict | None:
+    rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_DRIVERS,
+        params={
+            "select": "*",
+            "phone": f"eq.{phone.strip()}",
+            "limit": "2",
+        },
+        action_description="driver phone lookup",
+    )
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="This phone number is linked to multiple driver accounts. Contact dispatch.",
+        )
+    return rows[0] if rows else None
 
 
 def driver_session_secret() -> str:
@@ -1493,10 +1511,24 @@ async def create_driver(
 ):
     # Account activation is controlled by the backend, not by client-supplied
     # status values. Every newly created driver is active and verified.
+    normalized_phone = driver.phone.strip()
+    existing_phone_rows = await supabase_request(
+        "GET",
+        SUPABASE_TABLE_DRIVERS,
+        params={
+            "select": "driver_id",
+            "phone": f"eq.{normalized_phone}",
+            "limit": "1",
+        },
+        action_description="duplicate driver phone check",
+    )
+    if existing_phone_rows:
+        raise HTTPException(status_code=409, detail="A driver is already registered with this phone number.")
+
     payload = {
         "driver_id": driver.driverId,
         "name": driver.name,
-        "phone": driver.phone,
+        "phone": normalized_phone,
         "vehicle": driver.vehicle,
         "plate_number": driver.plateNumber,
         "status": "ACTIVE",
@@ -1776,14 +1808,17 @@ async def refresh_dispatch_offer(record: dict) -> dict:
 async def driver_login(login: DriverLogin):
     stage = "rate_limit"
     try:
+        phone_key = hashlib.sha256(login.phone.strip().encode("utf-8")).hexdigest()
         await enforce_shared_rate_limit(
-            "driver-login:" + login.driverId,
+            "driver-login:" + phone_key,
             AUTH_RATE_LIMIT_MAX,
             AUTH_RATE_LIMIT_WINDOW,
             "Too many driver login attempts. Please try again later.",
         )
         stage = "driver_lookup"
-        driver = await get_driver_record(login.driverId)
+        driver = await find_driver_by_phone(login.phone)
+        if not driver:
+            raise HTTPException(status_code=401, detail="Invalid phone number or PIN.")
         stage = "account_status"
         if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
             raise HTTPException(status_code=403, detail="Driver account is not active and verified.")
