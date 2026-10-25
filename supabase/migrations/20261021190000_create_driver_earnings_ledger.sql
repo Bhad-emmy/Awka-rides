@@ -34,3 +34,8 @@ create index if not exists oka_rides_driver_earnings_paid_at_idx
     on public.oka_rides_driver_earnings (paid_at desc);
 
 alter table public.oka_rides_driver_earnings enable row level security;
+
+-- The FastAPI backend uses the Supabase service-role key. Keep this ledger
+-- unavailable to public client roles even if the public schema is exposed.
+revoke all on table public.oka_rides_driver_earnings from anon, authenticated;
+grant all on table public.oka_rides_driver_earnings to service_role;
