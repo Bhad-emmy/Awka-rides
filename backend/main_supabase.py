@@ -2923,6 +2923,180 @@ async def paystack_webhook(request: Request):
     return {"received": True}
 
 
+def safe_paystack_mode() -> str:
+    """Expose only whether configured for test/live, never the secret itself."""
+    key = os.getenv("PAYSTACK_SECRET_KEY", "").strip()
+    if key.startswith("sk_live_"):
+        return "live"
+    if key.startswith("sk_test_"):
+        return "test"
+    return "not-configured"
+
+
+def paystack_subaccount_public_info(account: dict) -> dict:
+    number = str(account.get("account_number") or "")
+    return {
+        "subaccountCode": str(account.get("subaccount_code") or ""),
+        "bankName": str(account.get("settlement_bank") or ""),
+        "accountName": str(account.get("account_name") or ""),
+        "maskedAccount": "****" + number[-4:] if number else "",
+        "requiresDashboardVerification": account.get("is_verified") is False,
+        "mode": str(account.get("domain") or safe_paystack_mode()),
+    }
+
+
+@app.get("/api/payments/paystack/readiness")
+async def paystack_admin_readiness(_: str = Depends(require_dispatcher_session)):
+    """API connectivity check; does not prove split settlement or bank credit."""
+    mode = safe_paystack_mode()
+    if mode == "not-configured":
+        return {"configured": False, "apiConnected": False, "mode": mode,
+                "message": "Configure a valid Paystack secret key in Vercel Production."}
+    try:
+        await paystack_api("GET", "/bank?country=nigeria&perPage=1")
+    except HTTPException:
+        return {"configured": True, "apiConnected": False, "mode": mode,
+                "message": "Paystack API authentication/connectivity failed. Review its Vercel secret."}
+    return {"configured": True, "apiConnected": True, "mode": mode,
+            "message": "Paystack API responded. Checkout, 85/15 split, webhook and real bank settlement still require testing."}
+
+
+@app.get("/api/payments/paystack/banks")
+async def list_paystack_banks(_: str = Depends(require_dispatcher_session)):
+    banks = {}
+    for page in range(1, 5):
+        raw = await paystack_api("GET", f"/bank?country=nigeria&perPage=100&page={page}")
+        if not isinstance(raw, list):
+            raise HTTPException(status_code=502, detail="Unexpected bank directory response.")
+        for bank in raw:
+            if not isinstance(bank, dict):
+                continue
+            code = str(bank.get("code") or "").strip()
+            name = str(bank.get("name") or "").strip()
+            if code and name and bank.get("active") is not False:
+                banks[code] = {"code": code, "name": name}
+        if len(raw) < 100:
+            break
+    return {"banks": sorted(banks.values(), key=lambda bank: bank["name"].casefold())}
+
+
+async def resolve_driver_bank_account(bank_code: str, account_number: str) -> dict:
+    params = urlencode({"bank_code": bank_code, "account_number": account_number})
+    account = await paystack_api("GET", "/bank/resolve?" + params)
+    if not isinstance(account, dict) or not str(account.get("account_name") or "").strip():
+        raise HTTPException(status_code=409, detail="Paystack could not verify the bank account name.")
+    if str(account.get("account_number") or account_number).strip() != account_number:
+        raise HTTPException(status_code=409, detail="Paystack returned a different bank account number.")
+    return account
+
+
+async def require_driver_without_subaccount(driver_id: str) -> dict:
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=409, detail="Verify and activate the driver before linking payouts.")
+    if str(driver.get("paystack_subaccount_code") or "").strip():
+        raise HTTPException(status_code=409, detail="A Paystack subaccount is already linked to this driver.")
+    return driver
+
+
+@app.post("/api/drivers/{driver_id}/paystack/bank-lookup")
+async def lookup_driver_bank(
+    data: DriverBankLookup,
+    driver_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    await require_driver_without_subaccount(driver_id)
+    await enforce_shared_rate_limit("oka-driver-bank:" + driver_id, 12, 3600,
+                                    "Too many bank verification attempts. Try again later.")
+    result = await resolve_driver_bank_account(data.bankCode, data.accountNumber)
+    return {"accountName": str(result["account_name"]), "maskedAccount": "****" + data.accountNumber[-4:]}
+
+
+@app.post("/api/drivers/{driver_id}/paystack/connect")
+async def create_driver_paystack_subaccount(
+    data: DriverPaystackConnect,
+    driver_id: str = Path(min_length=1),
+    dispatcher_id: str = Depends(require_dispatcher_session),
+):
+    if not data.confirmedOwnerConsent:
+        raise HTTPException(status_code=422, detail="Verify driver ownership and obtain consent before linking a bank account.")
+    driver = await require_driver_without_subaccount(driver_id)
+    await enforce_shared_rate_limit("oka-driver-bank-create:" + driver_id, 5, 3600,
+                                    "Too many payout setup attempts. Contact dispatch support.")
+    account = await resolve_driver_bank_account(data.bankCode, data.accountNumber)
+    if " ".join(str(account["account_name"]).casefold().split()) != " ".join(data.confirmedAccountName.casefold().split()):
+        raise HTTPException(status_code=409, detail="The verified account name changed; resolve it again.")
+
+    # Provider creation and DB linking cannot share a transaction. On a failure,
+    # give dispatch the Paystack subaccount code for safe manual recovery.
+    created = await paystack_api("POST", "/subaccount", {
+        "business_name": str(driver.get("name") or driver_id),
+        "bank_code": data.bankCode,
+        "account_number": data.accountNumber,
+        "percentage_charge": PAYSTACK_PLATFORM_COMMISSION_PERCENT,
+        "description": "Oka Rides: driver receives 85%, platform retains 15%",
+        "primary_contact_name": str(driver.get("name") or ""),
+        "primary_contact_phone": str(driver.get("phone") or ""),
+    })
+    if not isinstance(created, dict):
+        raise HTTPException(status_code=502, detail="Unexpected Paystack subaccount response.")
+    code = str(created.get("subaccount_code") or "").strip()
+    if not code.startswith("ACCT_"):
+        raise HTTPException(status_code=502, detail="Paystack did not return a usable subaccount code.")
+    try:
+        verified = await validate_paystack_subaccount_for_current_key(code)
+        if str(verified.get("account_number") or data.accountNumber) != data.accountNumber:
+            raise HTTPException(status_code=409, detail="The returned subaccount bank number differs.")
+        rows = await supabase_request(
+            "PATCH", SUPABASE_TABLE_DRIVERS,
+            params={"driver_id": f"eq.{driver_id}", "paystack_subaccount_code": "is.null",
+                    "status": "eq.ACTIVE", "verification_status": "eq.VERIFIED"},
+            json_body={"paystack_subaccount_code": code},
+            action_description="driver Paystack subaccount association",
+        )
+        if not rows:
+            raise HTTPException(status_code=409, detail="Driver record changed during Paystack setup.")
+    except HTTPException as exc:
+        raise HTTPException(status_code=409, detail=(
+            f"Paystack created subaccount {code}, but verification or driver linking did not finish. "
+            "Do not create another; review it in Paystack and use Link existing code."
+        )) from exc
+    await write_audit_log("dispatcher", dispatcher_id, "driver.paystack_connected", "driver", driver_id,
+                          {"subaccount_code": code, "mode": safe_paystack_mode()})
+    return {"connected": True, "driverId": driver_id, **paystack_subaccount_public_info(verified)}
+
+
+@app.post("/api/drivers/{driver_id}/paystack/link")
+async def link_driver_paystack_subaccount(
+    data: DriverPaystackLink,
+    driver_id: str = Path(min_length=1),
+    dispatcher_id: str = Depends(require_dispatcher_session),
+):
+    if not data.confirmedOwnerConsent:
+        raise HTTPException(status_code=422, detail="Confirm the subaccount belongs to this driver.")
+    await require_driver_without_subaccount(driver_id)
+    subaccount = await validate_paystack_subaccount_for_current_key(data.subaccountCode)
+    duplicate = await supabase_request(
+        "GET", SUPABASE_TABLE_DRIVERS,
+        params={"select": "driver_id", "paystack_subaccount_code": f"eq.{data.subaccountCode}", "limit": "1"},
+        action_description="driver subaccount duplicate lookup",
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="This Paystack subaccount belongs to a different driver.")
+    rows = await supabase_request(
+        "PATCH", SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}", "paystack_subaccount_code": "is.null",
+                "status": "eq.ACTIVE", "verification_status": "eq.VERIFIED"},
+        json_body={"paystack_subaccount_code": data.subaccountCode},
+        action_description="driver existing Paystack subaccount link",
+    )
+    if not rows:
+        raise HTTPException(status_code=409, detail="Driver record changed. Refresh and retry.")
+    await write_audit_log("dispatcher", dispatcher_id, "driver.paystack_connected", "driver", driver_id,
+                          {"subaccount_code": data.subaccountCode, "mode": safe_paystack_mode()})
+    return {"connected": True, "driverId": driver_id, **paystack_subaccount_public_info(subaccount)}
+
+
 @app.patch("/api/rides/{ride_id}/status")
 async def update_ride_status(
     status_update: RideStatusUpdate,
