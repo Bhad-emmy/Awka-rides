@@ -11,6 +11,7 @@ import time
 from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Literal
+from urllib.parse import urlencode
 
 import httpx
 from dotenv import load_dotenv
@@ -229,6 +230,21 @@ class DriverUpdate(BaseModel):
     currentLongitude: float | None = Field(default=None, ge=-180, le=180)
     notes: str | None = None
     pin: str | None = Field(default=None, min_length=4, max_length=12)
+
+
+class DriverBankLookup(BaseModel):
+    bankCode: str = Field(min_length=2, max_length=12, pattern=r"^[A-Za-z0-9_-]+$")
+    accountNumber: str = Field(pattern=r"^\d{10}$")
+
+
+class DriverPaystackConnect(DriverBankLookup):
+    confirmedAccountName: str = Field(min_length=3, max_length=180)
+    confirmedOwnerConsent: bool
+
+
+class DriverPaystackLink(BaseModel):
+    subaccountCode: str = Field(pattern=r"^ACCT_[A-Za-z0-9]+$")
+    confirmedOwnerConsent: bool
 
 
 class DriverLogin(BaseModel):
@@ -1668,6 +1684,7 @@ async def list_drivers(_: str = Depends(require_dispatcher_session)):
                 "currentLongitude": row.get("current_longitude"),
                 "lastLocationAt": row.get("last_location_at"),
                 "eligible": eligible,
+                "paystackSubaccountLinked": bool(str(row.get("paystack_subaccount_code") or "").strip()),
             }
         )
 
@@ -2667,8 +2684,11 @@ async def validate_paystack_subaccount_for_current_key(subaccount_code: str) -> 
     returned_code = str(subaccount.get("subaccount_code") or subaccount.get("code") or "").strip()
     if returned_code and returned_code != code:
         raise HTTPException(status_code=409, detail="Paystack returned a different subaccount than the driver's configured account.")
-    if subaccount.get("is_active") is False:
+    if subaccount.get("is_active") is False or subaccount.get("active") is False:
         raise HTTPException(status_code=409, detail="The driver's Paystack subaccount is inactive.")
+    key_mode = "live" if paystack_secret_key().startswith("sk_live_") else "test"
+    if subaccount.get("domain") in {"test", "live"} and subaccount["domain"] != key_mode:
+        raise HTTPException(status_code=409, detail="Driver Paystack subaccount belongs to a different environment.")
     return subaccount
 
 
