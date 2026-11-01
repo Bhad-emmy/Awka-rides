@@ -179,6 +179,55 @@ The Termii API key must remain server-side.
 
 The current V1 implementation sends the SMS when a driver is assigned.
 
+## Driver daily earnings and payout reconciliation
+
+The dispatcher has a protected **Driver daily payouts** dashboard at
+`/driver-earnings.html`. Earnings are booked **only when a confirmed-PAID
+ride transitions to COMPLETED**. The business date is `Africa/Lagos`.
+Cancelled and incomplete rides are not payable, and one ride cannot create
+more than one earnings entry.
+
+The driver earns 85% of the fare; Ọka-Rides earns 15%. Calculations use
+integer kobo with rounding to the nearest kobo and exact balancing.
+
+- **`PROVIDER_SPLIT`**: a Paystack-paid ride used the configured driver
+  subaccount 85/15 split. This is **not** available for manual payout. The
+  dispatcher must still reconcile actual settlement and any reversals in
+  Paystack; a successful checkout does not itself prove funds reached the bank.
+- **`UNPAID`**: a completed, paid ride funded by the dispatcher-confirmed
+  OPay/offline path. Its driver share is eligible for a manual bank settlement.
+- **`PAID_OUT`**: the dispatcher confirms the **already-completed** bank
+  transfer and records its reference. This is bookkeeping, not a transfer.
+
+The payout endpoint is dispatcher-session/CSRF protected. PostgreSQL
+atomically locks outstanding earnings, verifies the exact amount and ride
+count the dispatcher approved, rejects duplicate transfer references and
+records who confirmed the payout. Concurrent/stale confirmations fail safely.
+
+**Deployment order and safety:**
+
+1. Confirm backup/rollback approach. Apply
+   `supabase/migrations/20261021190000_create_driver_earnings_ledger.sql`
+   in the MEKA LOGIC Supabase database. It creates only an Oka-specific table,
+   trigger and restricted function; no shared Auth or OrderPing changes.
+2. Verify the new table has RLS enabled and that `anon` and
+   `authenticated` roles have no table/function privileges. The backend
+   `service_role` alone can access the ledger.
+3. Run `python -m pytest backend/test_paystack.py backend/test_driver_auth.py backend/test_driver_payouts.py -q`,
+   then deploy the matching backend and dashboard.
+4. Test completed OPay and Paystack rides in a controlled environment, including
+   concurrency, duplicate references, stale totals and non-dispatcher denial.
+5. Check the ledger against Paystack and bank statements before recording any
+   real settlement. **Never record a transfer before it has succeeded.**
+6. Existing completed rides are **not automatically backfilled**: historical
+   records may include test payments. Reconcile old rides and payouts manually
+   before creating any historical financial obligations.
+
+**Rollback:** If needed, redeploy the previous backend/UI commit. Do not drop
+the ledger table or trigger while live rides may complete; retain its data for
+audit and review before any schema rollback. No live money is transferred by
+this feature.
+
 ## Payment status and production readiness
 
 Paystack hosted checkout is implemented in the customer ride flow. When a ride has an assigned driver, a confirmed fare, and an outstanding payment, the customer interface displays **Pay securely with Paystack**. The FastAPI backend initializes checkout, verifies transactions server-side, and handles signed Paystack webhooks. Offline payments can also be recorded by the dispatcher.
