@@ -2972,7 +2972,7 @@ async def paystack_admin_readiness(_: str = Depends(require_dispatcher_session))
         return {"configured": True, "apiConnected": False, "mode": mode,
                 "message": "Paystack API authentication/connectivity failed. Review its Vercel secret."}
     return {"configured": True, "apiConnected": True, "mode": mode,
-            "message": "Paystack API responded. Checkout, 85/15 split, webhook and real bank settlement still require testing."}
+            "message": "Paystack API connected. A non-split full-fare checkout, signed webhook, platform-bank settlement and manual driver transfer still require testing."}
 
 
 @app.get("/api/payments/paystack/banks")
