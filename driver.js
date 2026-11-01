@@ -100,6 +100,11 @@ async function loadDriverEarnings(){
   }finally{
     earningsInFlight=false;
     $("earnings-refresh").disabled=false;
+    // If the driver selected another date during this request, fetch that
+    // selection instead of leaving its loading state indefinitely.
+    if(token&&currentToken===token&&$("earnings-date").value!==date&&!document.hidden){
+      void loadDriverEarnings();
+    }
   }
 }
 $("earnings-date").value=nigeriaBusinessDate();
