@@ -508,6 +508,7 @@ async function loadDrivers() {
                 <input type="radio" name="driver" value="${html(driver.driverId)}" ${state.selectedDriverId === driver.driverId ? "checked" : ""} ${available ? "" : "disabled"}>
                 <strong>${html(driver.name)} <span class="driver-distance">${html(distance)}</span></strong>
                 <small>${html(driver.vehicle)} · ${html(driver.plateNumber)} ${badge}</small>
+                <small>${driver.paystackSubaccountLinked ? "✅ Paystack subaccount linked" : "⚠️ Paystack not linked — use verified offline payment or connect bank before checkout"}</small>
                 <small>${html(driver.completedRides || 0)} completed · ${html(driver.cancelledRides || 0)} cancelled · ${html(driver.availabilityStatus || "OFFLINE")}</small>
                 <div class="driver-control">
                     <select class="driver-availability" data-driver-id="${html(driver.driverId)}" aria-label="Availability for ${html(driver.name)}">
