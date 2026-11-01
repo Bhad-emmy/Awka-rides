@@ -167,9 +167,32 @@ class DriverEarningsHttpAuthorizationTests(unittest.TestCase):
     def test_no_driver_token_rejected(self):
         from fastapi.testclient import TestClient
         from backend.main_supabase import app
-        with TestClient(app) as client:
-            response = client.get("/api/driver/earnings?earning_date=2026-11-01")
+        # The application applies Supabase-backed global rate limiting before
+        # route authentication. Stub only that infrastructure dependency.
+        with patch("backend.main_supabase.enforce_shared_rate_limit", new=AsyncMock()):
+            with TestClient(app) as client:
+                response = client.get("/api/driver/earnings?earning_date=2026-11-01")
         self.assertEqual(response.status_code, 401, response.text)
+
+    def test_authenticated_driver_cannot_select_another_drivers_earnings(self):
+        from fastapi.testclient import TestClient
+        from backend.main_supabase import app, create_driver_token
+        driver = {"driver_id": "oka01", "status": "ACTIVE", "verification_status": "VERIFIED"}
+        with (
+            patch("backend.main_supabase.enforce_shared_rate_limit", new=AsyncMock()),
+            patch("backend.main_supabase.driver_session_secret", return_value="test-earnings-secret"),
+            patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value=driver)),
+            patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=[])) as db,
+        ):
+            token = create_driver_token("oka01")
+            with TestClient(app) as client:
+                response = client.get(
+                    "/api/driver/earnings?earning_date=2026-11-01&driver_id=oka02",
+                    headers={"Authorization": "Bearer " + token},
+                )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["summary"]["rideCount"], 0)
+        self.assertEqual(db.await_args.kwargs["params"]["driver_id"], "eq.oka01")
 
 
 if __name__ == "__main__":
