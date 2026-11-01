@@ -17,6 +17,16 @@ begin
   end if;
 end;
 $$;
+-- Verified manual bank transfer destination, visible only to signed-in
+-- dispatchers via protected APIs. Oka drivers table is RLS-protected and
+-- inaccessible to browser anon/authenticated DB roles.
+alter table public.oka_rides_drivers
+  add column if not exists payout_bank_code text,
+  add column if not exists payout_bank_name text,
+  add column if not exists payout_account_number text,
+  add column if not exists payout_account_name text,
+  add column if not exists payout_bank_verified_at timestamptz;
+
 -- PAYSTACK + MANUAL => UNPAID. Existing PROVIDER_SPLIT entries are retained
 -- for independent investigation; never automatically recast them as due.
 alter table public.oka_rides_driver_earnings
