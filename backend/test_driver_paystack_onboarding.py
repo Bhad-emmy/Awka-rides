@@ -84,10 +84,10 @@ class DriverPaystackOnboardingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["subaccountCode"], "ACCT_DRIVER4")
         self.assertTrue(result["requiresDashboardVerification"])
         self.assertNotIn("0000000000", str(result))
-        create_args = api.await_args.kwargs
-        self.assertEqual(create_args["payload"]["percentage_charge"], 15)
-        self.assertEqual(create_args["payload"]["bank_code"], "001")
-        self.assertEqual(create_args["payload"]["account_number"], "0000000000")
+        provider_payload = api.await_args.args[2]
+        self.assertEqual(provider_payload["percentage_charge"], 15)
+        self.assertEqual(provider_payload["bank_code"], "001")
+        self.assertEqual(provider_payload["account_number"], "0000000000")
         params = db.await_args.kwargs
         self.assertEqual(params["json_body"], {"paystack_subaccount_code": "ACCT_DRIVER4"})
         self.assertEqual(params["params"]["paystack_subaccount_code"], "is.null")
