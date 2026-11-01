@@ -19,6 +19,12 @@ create table public.oka_rides_rides (
 
 \ir ../supabase/migrations/20261021190000_create_driver_earnings_ledger.sql
 
+create table public.oka_rides_drivers (
+  driver_id text primary key,
+  status text,
+  verification_status text
+);
+
 -- Apply the cutover after the original schema, before writing new rides.
 \ir ../supabase/migrations/20261101160000_paystack_platform_daily_manual_settlement.sql
 
