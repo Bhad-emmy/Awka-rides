@@ -3061,8 +3061,13 @@ async def create_driver_paystack_subaccount(
             f"Paystack created subaccount {code}, but verification or driver linking did not finish. "
             "Do not create another; review it in Paystack and use Link existing code."
         )) from exc
-    await write_audit_log("dispatcher", dispatcher_id, "driver.paystack_connected", "driver", driver_id,
-                          {"subaccount_code": code, "mode": safe_paystack_mode()})
+    try:
+        await write_audit_log("dispatcher", dispatcher_id, "driver.paystack_connected", "driver", driver_id,
+                              {"subaccount_code": code, "mode": safe_paystack_mode()})
+    except HTTPException:
+        # The link is already saved. Never report a false failure that might
+        # prompt dispatch to create another financial subaccount.
+        pass
     return {"connected": True, "driverId": driver_id, **paystack_subaccount_public_info(verified)}
 
 
@@ -3092,8 +3097,11 @@ async def link_driver_paystack_subaccount(
     )
     if not rows:
         raise HTTPException(status_code=409, detail="Driver record changed. Refresh and retry.")
-    await write_audit_log("dispatcher", dispatcher_id, "driver.paystack_connected", "driver", driver_id,
-                          {"subaccount_code": data.subaccountCode, "mode": safe_paystack_mode()})
+    try:
+        await write_audit_log("dispatcher", dispatcher_id, "driver.paystack_connected", "driver", driver_id,
+                              {"subaccount_code": data.subaccountCode, "mode": safe_paystack_mode()})
+    except HTTPException:
+        pass  # Driver account already linked; don't invite a duplicate attempt.
     return {"connected": True, "driverId": driver_id, **paystack_subaccount_public_info(subaccount)}
 
 
