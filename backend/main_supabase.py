@@ -2376,6 +2376,7 @@ async def dispatch_options(
             "completedRides": row.get("completed_rides", 0),
             "cancelledRides": row.get("cancelled_rides", 0),
             "canAssign": active_verified and online,
+            "paystackSubaccountLinked": bool(str(row.get("paystack_subaccount_code") or "").strip()),
         })
     
     candidates.sort(
