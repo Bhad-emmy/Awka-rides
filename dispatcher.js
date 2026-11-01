@@ -325,7 +325,7 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         refreshGeneratedDriverId();
         await refreshPaystackDriverChoices(result.driverId);
         document.getElementById("driver-paystack-setup").scrollIntoView({behavior:"smooth",block:"start"});
-        setFeedback("Driver registered successfully. They can sign in with their phone and PIN. Complete Paystack bank setup below before online checkout.", true);
+        setFeedback("Driver registered successfully. They can sign in with their phone and PIN. Verify their receiving bank below for end-of-day manual payouts.", true);
         if (state.selectedRide) await loadDrivers();
     } catch (error) {
         setFeedback(error.message || "Could not create driver account. Check whether this generated ID already exists.");
@@ -693,7 +693,7 @@ async function refreshPaystackDriverChoices(preselect=""){
     select.replaceChildren();
     select.add(new Option("Choose a registered driver",""));
     for(const driver of data.drivers||[]){
-        const label=driver.name+" — "+driver.driverId+(driver.paystackSubaccountLinked?" — Paystack linked":" — payout not set up");
+        const label=driver.name+" — "+driver.driverId+(driver.payoutBankVerified?" — payout bank saved":" — needs payout bank");
         select.add(new Option(label,driver.driverId));
     }
     if([...select.options].some(x=>x.value===selected))select.value=selected;
@@ -722,7 +722,7 @@ async function refreshPaystackBanks(){
     }catch(err){
         select.replaceChildren();
         select.add(new Option("Bank list unavailable — check Paystack",""));
-        paystackSetupMessage("Unable to load Paystack banks: "+err.message);
+        paystackSetupMessage("Unable to load bank directory: "+err.message);
     }
 }
 async function initializePaystackSetup(){
@@ -761,7 +761,7 @@ $("#paystack-verify-bank").addEventListener("click",async()=>{
             method:"POST",body:JSON.stringify({bankCode,accountNumber})
         });
         verifiedBankSelection={driverId,bankCode,accountNumber,accountName:data.accountName};
-        $("#paystack-resolved-name").textContent="Paystack verified: "+data.accountName+" ("+data.maskedAccount+"). Confirm it belongs to the driver before connecting.";
+        $("#paystack-resolved-name").textContent="Verified account: "+data.accountName+" ("+data.maskedAccount+"). Confirm it belongs to the driver before connecting.";
         paystackSetupMessage("Account name resolved. Check the driver identity and tick the confirmation box.",true);
     }catch(error){paystackSetupMessage("Account verification failed: "+error.message)}
     finally{setBusy(button,false)}
@@ -778,44 +778,22 @@ $("#driver-paystack-form").addEventListener("submit",async event=>{
     }
     const button=$("#paystack-connect-button");setBusy(button,true);
     try{
-        const result=await apiRequest("/drivers/"+encodeURIComponent(info.driverId)+"/paystack/connect",{
+        const bankName=$("#paystack-bank-code").selectedOptions[0]?.textContent||"";
+        const result=await apiRequest("/drivers/"+encodeURIComponent(info.driverId)+"/payout-bank",{
             method:"POST",
             body:JSON.stringify({
-                bankCode:info.bankCode,accountNumber:info.accountNumber,
+                bankCode:info.bankCode,bankName,accountNumber:info.accountNumber,
                 confirmedAccountName:info.accountName,confirmedOwnerConsent:true
             })
         });
         $("#paystack-account-number").value="";
         clearVerifiedBankSelection();
         await refreshPaystackDriverChoices(info.driverId);
-        paystackSetupMessage("Paystack subaccount linked ("+result.subaccountCode+") for "+result.accountName+
-            ". "+(result.requiresDashboardVerification?"VERIFY this new subaccount in Paystack Dashboard before its first payout.":"Confirm test/live split checkout before using real funds."),true);
+        paystackSetupMessage("Verified payout bank saved: "+result.bankName+" — "+result.accountName+
+            " ("+result.maskedAccount+"). Use Driver daily payouts to see the 85% owed and record a bank transfer.",true);
     }catch(error){paystackSetupMessage("Could not finish Paystack setup: "+error.message)}
     finally{setBusy(button,false)}
 });
-$("#paystack-existing-form").addEventListener("submit",async event=>{
-    event.preventDefault();
-    const driverId=$("#paystack-driver-select").value;
-    const subaccountCode=$("#paystack-existing-code").value.trim();
-    if(!driverId||!$("#paystack-existing-consent").checked||!/^ACCT_[A-Za-z0-9]+$/.test(subaccountCode)){
-        paystackSetupMessage("Select a driver, enter a valid existing ACCT_ code and confirm ownership.");
-        return;
-    }
-    const button=$("#paystack-link-button");setBusy(button,true);
-    try{
-        const result=await apiRequest("/drivers/"+encodeURIComponent(driverId)+"/paystack/link",{
-            method:"POST",body:JSON.stringify({subaccountCode,confirmedOwnerConsent:true})
-        });
-        $("#paystack-existing-code").value="";
-        $("#paystack-existing-consent").checked=false;
-        clearVerifiedBankSelection();
-        await refreshPaystackDriverChoices(driverId);
-        paystackSetupMessage("Linked existing Paystack subaccount "+result.subaccountCode+
-            " ("+result.accountName+"). "+(result.requiresDashboardVerification?"Verify it in your Paystack Dashboard before expecting settlements.":"Run the checkout test."),true);
-    }catch(error){paystackSetupMessage("Could not link existing subaccount: "+error.message)}
-    finally{setBusy(button,false)}
-});
-
 $("#login-button").addEventListener("click", () => {
     loginButtonClicked = true;
 });
