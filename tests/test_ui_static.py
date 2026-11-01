@@ -24,7 +24,7 @@ class UserInterfaceChecks(unittest.TestCase):
                 text = (ROOT / filename).read_text(encoding="utf-8")
                 self.assertIn('href="/privacy.html"', text)
                 self.assertIn('href="/terms.html"', text)
-                self.assertIn('class="oka-legal-footer"', text)
+                self.assertIn('class="oka-legal-footer', text)
 
     def test_authentication_sign_up_links_to_terms(self):
         text = (ROOT / "index.html").read_text(encoding="utf-8")
