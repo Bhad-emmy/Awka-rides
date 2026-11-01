@@ -179,105 +179,72 @@ The Termii API key must remain server-side.
 
 The current V1 implementation sends the SMS when a driver is assigned.
 
-## Real driver onboarding and Paystack split readiness
+## Driver registration, central Paystack collection and daily payouts
 
-To onboard a verified driver for a real 85/15 split:
+Oka Rides no longer initiates payment splits or requires Paystack driver subaccounts
+for hosted customer checkout. It collects **100% of the customer's fare** into the
+platform's Paystack account. After a verified payment and completed ride, the
+ledger calculates **85% for the driver** and **15% for Oka Rides**, both based on
+the gross fare in integer kobo. Paystack processing fees are borne by Oka
+Rides from its 15% margin. Paystack settlement to the platform bank may occur
+later than the ride's Nigeria business date.
 
-1. Sign in at `/dispatcher.html`. Under **Register driver**, verify their
-   identity/vehicle/plate, enter their registered phone number and a private
-   driver PIN, then register them. The account is immediately ACTIVE/VERIFIED
-   as an intentional dispatcher-controlled pilot action.
-2. Under **Driver bank account & Paystack split setup**, click
-   **Check Paystack**. It reports whether the server can authenticate to
-   Paystack and whether the key is in TEST or LIVE mode (never its value).
-   This is connectivity verification, not proof of an actual split.
-3. Select the registered driver, choose their bank, enter the 10-digit
-   receiving account number and click **Verify account name**. Paystack
-   resolves the account. Check it against the driver's ID and obtain their
-   consent before ticking the ownership confirmation.
-4. Click **Create & link Paystack subaccount**. The backend creates a
-   Paystack payout subaccount with 15% main-account commission and links its
-   `ACCT_...` code to that driver. No raw bank account number is persisted
-   in Oka Rides. If you already created the subaccount in the Paystack
-   Dashboard, use **Link existing code** instead. Never attach one
-   subaccount to two drivers.
-5. In the **Paystack Dashboard → Subaccounts**, verify the newly created
-   payout subaccount. Paystack may hold its first settlement until verification.
-   Check the exact receiving bank name/number before enabling paid rides.
-6. Test a complete customer journey using a matching TEST subaccount and
-   `sk_test_...` key: customer booking → dispatcher/automatic assignment
-   → confirmed fare → hosted Paystack checkout → successful server verify
-   and/or signed webhook → pickup → completed ride → provider split
-   appears under the driver and dispatcher earnings. Then review the
-   Paystack split/settlement report against the intended **85% driver,
-   15% platform**, with platform bearing fees.
-7. Only after the TEST journey passes, configure LIVE credentials and
-   create or link a LIVE Paystack subaccount. The two environments are
-   separate. Repeat a **small, deliberate real-money transaction** and
-   verify the correct driver bank settlement before opening the flow to
-   regular customers. Do not mark a Paystack-paid ride as a manual OPay
-   bank payout; that would double-pay the driver.
+**Today's driver onboarding:**
 
-**Protected endpoints:** the Paystack readiness check, bank list, bank
-name verification, subaccount creation and existing-code association
-are dispatcher-only API operations. Bank and payment secret credentials
-are never stored or exposed to the driver client.
+1. Sign in to `/dispatcher.html` and register the driver after checking
+   their identity, phone, vehicle and plate. Provide the driver with a
+   private sign-in PIN. Newly registered drivers become ACTIVE + VERIFIED.
+2. Under **Driver bank details for daily payouts**, choose the driver,
+   receiving bank and ten-digit account number. Click **Verify account
+   name**; compare the verified name against their identity, confirm the
+   driver's consent and click **Save verified payout bank**.
+3. Paystack verifies the bank name. Only the backend service role can access
+   full bank details in the RLS-protected driver table. The driver's own
+   portal never receives the account number.
+4. Customer books → driver assigned → dispatcher confirms fare → customer
+   pays the full fare through Paystack (no `split`, `subaccount`, or
+   `split_code`) → server verifies transaction and signed webhook →
+   driver picks up and completes ride → ledger records 85% `UNPAID`.
+   OPay manually confirmed fares use the same daily payout ledger.
+5. Sign in at `/driver-earnings.html`, choose the Nigeria business date,
+   review each driver's earnings and outstanding balance. Click **View bank**
+   to retrieve the receiving account. Transfer money **outside** Oka Rides
+   only after the platform's bank has actually received sufficient funds.
+   Then record the bank's unique transfer reference. The database validates
+   count and amount and prevents duplicate payout confirmation.
+6. Old Paystack transactions **without** explicit `paystack_settlement_mode=
+   'MANUAL'` are treated as **legacy split possible** and excluded from
+   new manual payout until reconciled against provider statements.
+   Historical completed rides are not auto-backfilled.
 
-**Limitations:** A successful Paystack API connectivity check does not
-prove the hosted checkout works, that webhooks reach production, or that
-money has reached the driver's bank. A new LIVE subaccount requires
-Paystack Dashboard verification. Manual OPay is still a fallback for
-dispatcher-confirmed offline transactions and does **not** use Paystack's
-automatic split or trigger instant driver settlement.
+**Test before live use:** a verified account and Paystack API connectivity
+are not sufficient proof that money flows. Run TEST-mode customer checkout,
+verify the 100%-to-platform Paystack transaction, callback/webhook, completed
+ride and unpaid driver ledger. Only then switch to LIVE mode (with a separate
+valid production key), run a controlled small real-money charge and confirm
+merchant settlement and the subsequent driver bank transfer. The app never
+initiates a bank transfer automatically.
+
+**Financial controls:** Outstanding earnings represent obligations, not
+settled platform cash. Never pay from the same ride twice. If a customer
+receives a refund/chargeback, investigate before payout and reconcile
+affected earnings. Existing Paystack subaccounts and the old onboarding
+code are legacy only and are not required for new checkout.
 
 ## Driver daily earnings and payout reconciliation
 
-The dispatcher has a protected **Driver daily payouts** dashboard at
-`/driver-earnings.html`. Earnings are booked **only when a confirmed-PAID
-ride transitions to COMPLETED**. The business date is `Africa/Lagos`.
-Cancelled and incomplete rides are not payable, and one ride cannot create
-more than one earnings entry.
+New completed and paid PAYSTACK or OPAY fares create one driver entry
+per ride with status `UNPAID`. The dispatcher can record a completed bank
+transfer, changing it to `PAID_OUT`; drivers see these states read-only.
+`PROVIDER_SPLIT` is retained solely as a legacy review state for
+pre-cutover transactions. The existing atomic payout function prevents
+reusing a transfer reference or paying a different balance from the
+dispatcher's confirmed amount.
 
-The driver earns 85% of the fare; Ọka-Rides earns 15%. Calculations use
-integer kobo with rounding to the nearest kobo and exact balancing.
-
-- **`PROVIDER_SPLIT`**: a Paystack-paid ride used the configured driver
-  subaccount 85/15 split. This is **not** available for manual payout. The
-  dispatcher must still reconcile actual settlement and any reversals in
-  Paystack; a successful checkout does not itself prove funds reached the bank.
-- **`UNPAID`**: a completed, paid ride funded by the dispatcher-confirmed
-  OPay/offline path. Its driver share is eligible for a manual bank settlement.
-- **`PAID_OUT`**: the dispatcher confirms the **already-completed** bank
-  transfer and records its reference. This is bookkeeping, not a transfer.
-
-The payout endpoint is dispatcher-session/CSRF protected. PostgreSQL
-atomically locks outstanding earnings, verifies the exact amount and ride
-count the dispatcher approved, rejects duplicate transfer references and
-records who confirmed the payout. Concurrent/stale confirmations fail safely.
-
-**Deployment order and safety:**
-
-1. Confirm backup/rollback approach. Apply
-   `supabase/migrations/20261021190000_create_driver_earnings_ledger.sql`
-   in the MEKA LOGIC Supabase database. It creates only an Oka-specific table,
-   trigger and restricted function; no shared Auth or OrderPing changes.
-2. Verify the new table has RLS enabled and that `anon` and
-   `authenticated` roles have no table/function privileges. The backend
-   `service_role` alone can access the ledger.
-3. Run `python -m pytest backend/test_paystack.py backend/test_driver_auth.py backend/test_driver_payouts.py -q`,
-   then deploy the matching backend and dashboard.
-4. Test completed OPay and Paystack rides in a controlled environment, including
-   concurrency, duplicate references, stale totals and non-dispatcher denial.
-5. Check the ledger against Paystack and bank statements before recording any
-   real settlement. **Never record a transfer before it has succeeded.**
-6. Existing completed rides are **not automatically backfilled**: historical
-   records may include test payments. Reconcile old rides and payouts manually
-   before creating any historical financial obligations.
-
-**Rollback:** If needed, redeploy the previous backend/UI commit. Do not drop
-the ledger table or trigger while live rides may complete; retain its data for
-audit and review before any schema rollback. No live money is transferred by
-this feature.
+Migration order: apply
+`supabase/migrations/20261101160000_paystack_platform_daily_manual_settlement.sql`
+before deploying corresponding backend checkout. RLS stays enabled and the
+settlement function remains service-role restricted.
 
 ### Driver earnings visibility (read-only)
 
@@ -297,8 +264,7 @@ bank payouts, previously recorded bank transfers and Paystack allocations.
   amount actually outstanding for bank payment.
 - Totals exclude uncompleted or unpaid rides and distinguish `UNPAID`,
   `PAID_OUT` and `PROVIDER_SPLIT` to prevent counting Paystack splits as
-  manual bank amounts owed. Paystack allocation still requires settlement
-  reconciliation with Paystack.
+  manual bank amounts owed. Any old Paystack split entry requires separate reconciliation with Paystack.
 - The driver screen refreshes when signed in, after a ride is completed,
   manually, and periodically while active. The API is read-only and needs
   no additional database migration.
@@ -307,7 +273,7 @@ bank payouts, previously recorded bank transfers and Paystack allocations.
 
 Paystack hosted checkout is implemented in the customer ride flow. When a ride has an assigned driver, a confirmed fare, and an outstanding payment, the customer interface displays **Pay securely with Paystack**. The FastAPI backend initializes checkout, verifies transactions server-side, and handles signed Paystack webhooks. Offline payments can also be recorded by the dispatcher.
 
-**Implementation does not mean production checkout is operational.** The Vercel Production `PAYSTACK_SECRET_KEY` environment variable is present, but its value is protected and cannot be verified from repository inspection. Use the dispatcher **Check Paystack** control to validate test/live mode and API authentication; then complete a split checkout, signed webhook and bank settlement test before treating production as payment-ready. Do not expose the key in frontend code, README, logs, or Git. Configure a Paystack test secret key first, verify checkout/callback/webhook and payment-ledger behavior, and only then consider live mode.
+**Implementation does not mean production checkout is operational.** The Vercel Production `PAYSTACK_SECRET_KEY` environment variable is present, but its value is protected and cannot be verified from repository inspection. Use the dispatcher **Check Paystack** control to validate test/live mode and API authentication; then complete a non-split checkout, signed webhook and platform bank settlement test before treating production as payment-ready. Do not expose the key in frontend code, README, logs, or Git. Configure a Paystack test secret key first, verify checkout/callback/webhook and payment-ledger behavior, and only then consider live mode.
 
 Manual OPay remains an available offline payment path where the dispatcher records and verifies payment. The customer-facing Paystack button is part of the implemented flow; do not describe Paystack as dormant or removed.
 
