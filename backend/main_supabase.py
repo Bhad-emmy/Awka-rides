@@ -2686,8 +2686,7 @@ async def validate_paystack_subaccount_for_current_key(subaccount_code: str) -> 
         raise HTTPException(status_code=409, detail="Paystack returned a different subaccount than the driver's configured account.")
     if subaccount.get("is_active") is False or subaccount.get("active") is False:
         raise HTTPException(status_code=409, detail="The driver's Paystack subaccount is inactive.")
-    key_mode = "live" if paystack_secret_key().startswith("sk_live_") else "test"
-    if subaccount.get("domain") in {"test", "live"} and subaccount["domain"] != key_mode:
+    if subaccount.get("domain") in {"test", "live"} and subaccount["domain"] != safe_paystack_mode():
         raise HTTPException(status_code=409, detail="Driver Paystack subaccount belongs to a different environment.")
     return subaccount
 
