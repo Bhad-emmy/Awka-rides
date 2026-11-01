@@ -154,7 +154,7 @@ insert into public.oka_rides_rides (
 );
 update public.oka_rides_rides set status='COMPLETED'
 where reference='TEST-PAYSTACK-MANUAL';
-do $
+do $$
 declare v_result jsonb;
 begin
   if not exists (
@@ -179,7 +179,7 @@ begin
     raise exception 'Payout incorrectly included legacy split';
   end if;
 end;
-$;
+$$;
 
 -- Direct browser roles must not be able to read/modify the ledger or settle.
 do $$
