@@ -323,7 +323,9 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         $("#new-driver-vehicle").value = "";
         $("#new-driver-plate").value = "";
         refreshGeneratedDriverId();
-        setFeedback("Driver registered successfully. They can sign in with their phone number and PIN. Account is ACTIVE and VERIFIED.", true);
+        await refreshPaystackDriverChoices(result.driverId);
+        document.getElementById("driver-paystack-setup").scrollIntoView({behavior:"smooth",block:"start"});
+        setFeedback("Driver registered successfully. They can sign in with their phone and PIN. Complete Paystack bank setup below before online checkout.", true);
         if (state.selectedRide) await loadDrivers();
     } catch (error) {
         setFeedback(error.message || "Could not create driver account. Check whether this generated ID already exists.");
@@ -506,6 +508,7 @@ async function loadDrivers() {
                 <input type="radio" name="driver" value="${html(driver.driverId)}" ${state.selectedDriverId === driver.driverId ? "checked" : ""} ${available ? "" : "disabled"}>
                 <strong>${html(driver.name)} <span class="driver-distance">${html(distance)}</span></strong>
                 <small>${html(driver.vehicle)} · ${html(driver.plateNumber)} ${badge}</small>
+                <small>${driver.paystackSubaccountLinked ? "✅ Paystack subaccount linked" : "⚠️ Paystack not linked — use verified offline payment or connect bank before checkout"}</small>
                 <small>${html(driver.completedRides || 0)} completed · ${html(driver.cancelledRides || 0)} cancelled · ${html(driver.availabilityStatus || "OFFLINE")}</small>
                 <div class="driver-control">
                     <select class="driver-availability" data-driver-id="${html(driver.driverId)}" aria-label="Availability for ${html(driver.name)}">
@@ -669,6 +672,150 @@ $("#payment-button").addEventListener("click", recordPayment);
 
 let loginButtonClicked = false;
 
+/* Driver payout setup: no bank account number is persisted in the browser
+   or sent to Oka Rides except through the authenticated verification request. */
+let verifiedBankSelection=null;
+function paystackSetupMessage(message,ok=false){
+    const node=$("#paystack-onboard-feedback");
+    node.textContent=message;
+    node.classList.toggle("success",ok);
+}
+function clearVerifiedBankSelection(){
+    verifiedBankSelection=null;
+    $("#paystack-resolved-name").textContent="Account name not verified yet.";
+    $("#paystack-owner-consent").checked=false;
+    $("#paystack-connect-button").disabled=true;
+}
+async function refreshPaystackDriverChoices(preselect=""){
+    const selected=preselect||$("#paystack-driver-select").value;
+    const data=await apiRequest("/drivers");
+    const select=$("#paystack-driver-select");
+    select.replaceChildren();
+    select.add(new Option("Choose a registered driver",""));
+    for(const driver of data.drivers||[]){
+        const label=driver.name+" — "+driver.driverId+(driver.paystackSubaccountLinked?" — Paystack linked":" — payout not set up");
+        select.add(new Option(label,driver.driverId));
+    }
+    if([...select.options].some(x=>x.value===selected))select.value=selected;
+    clearVerifiedBankSelection();
+}
+async function checkPaystackReadiness(){
+    const label=$("#paystack-readiness-message");
+    try{
+        const check=await apiRequest("/payments/paystack/readiness");
+        label.textContent="Paystack "+check.mode.toUpperCase()+" · "+(check.apiConnected?"API connected":"Not connected")+". "+check.message;
+        label.style.color=check.apiConnected?(check.mode==="live"?"#166534":"#92400e"):"#b42318";
+    }catch(error){
+        label.textContent="Unable to check Paystack: "+error.message;
+    }
+}
+async function refreshPaystackBanks(){
+    const select=$("#paystack-bank-code");
+    select.replaceChildren();
+    select.add(new Option("Loading banks…",""));
+    try{
+        const result=await apiRequest("/payments/paystack/banks");
+        select.replaceChildren();
+        select.add(new Option("Choose receiving bank",""));
+        for(const bank of result.banks||[]) select.add(new Option(bank.name,bank.code));
+        if(!(result.banks||[]).length)throw new Error("No banks were returned.");
+    }catch(err){
+        select.replaceChildren();
+        select.add(new Option("Bank list unavailable — check Paystack",""));
+        paystackSetupMessage("Unable to load Paystack banks: "+err.message);
+    }
+}
+async function initializePaystackSetup(){
+    await checkPaystackReadiness();
+    try{
+        await refreshPaystackDriverChoices();
+        await refreshPaystackBanks();
+    }catch(error){
+        paystackSetupMessage("Unable to initialize bank setup: "+error.message);
+    }
+}
+$("#paystack-check-button").addEventListener("click",checkPaystackReadiness);
+$("#paystack-refresh-drivers").addEventListener("click",async()=>{
+    try{await refreshPaystackDriverChoices();paystackSetupMessage("Driver list refreshed.",true)}
+    catch(error){paystackSetupMessage(error.message)}
+});
+for(const selector of ["#paystack-driver-select","#paystack-bank-code","#paystack-account-number"]){
+    $(selector).addEventListener("change",clearVerifiedBankSelection);
+    if(selector==="#paystack-account-number")$(selector).addEventListener("input",clearVerifiedBankSelection);
+}
+$("#paystack-owner-consent").addEventListener("change",()=>{
+    $("#paystack-connect-button").disabled=!$("#paystack-owner-consent").checked||!verifiedBankSelection;
+});
+$("#paystack-verify-bank").addEventListener("click",async()=>{
+    const driverId=$("#paystack-driver-select").value;
+    const bankCode=$("#paystack-bank-code").value;
+    const accountNumber=$("#paystack-account-number").value.trim();
+    clearVerifiedBankSelection();
+    if(!driverId||!bankCode||!/^\d{10}$/.test(accountNumber)){
+        paystackSetupMessage("Select a driver and receiving bank, then enter a valid 10-digit account number.");
+        return;
+    }
+    const button=$("#paystack-verify-bank");setBusy(button,true);
+    try{
+        const data=await apiRequest("/drivers/"+encodeURIComponent(driverId)+"/paystack/bank-lookup",{
+            method:"POST",body:JSON.stringify({bankCode,accountNumber})
+        });
+        verifiedBankSelection={driverId,bankCode,accountNumber,accountName:data.accountName};
+        $("#paystack-resolved-name").textContent="Paystack verified: "+data.accountName+" ("+data.maskedAccount+"). Confirm it belongs to the driver before connecting.";
+        paystackSetupMessage("Account name resolved. Check the driver identity and tick the confirmation box.",true);
+    }catch(error){paystackSetupMessage("Account verification failed: "+error.message)}
+    finally{setBusy(button,false)}
+});
+$("#driver-paystack-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    const info=verifiedBankSelection;
+    if(!info||!$("#paystack-owner-consent").checked
+       ||$("#paystack-driver-select").value!==info.driverId
+       ||$("#paystack-bank-code").value!==info.bankCode
+       ||$("#paystack-account-number").value.trim()!==info.accountNumber){
+        paystackSetupMessage("Verify the current bank account and driver ownership before connecting.");
+        return;
+    }
+    const button=$("#paystack-connect-button");setBusy(button,true);
+    try{
+        const result=await apiRequest("/drivers/"+encodeURIComponent(info.driverId)+"/paystack/connect",{
+            method:"POST",
+            body:JSON.stringify({
+                bankCode:info.bankCode,accountNumber:info.accountNumber,
+                confirmedAccountName:info.accountName,confirmedOwnerConsent:true
+            })
+        });
+        $("#paystack-account-number").value="";
+        clearVerifiedBankSelection();
+        await refreshPaystackDriverChoices(info.driverId);
+        paystackSetupMessage("Paystack subaccount linked ("+result.subaccountCode+") for "+result.accountName+
+            ". "+(result.requiresDashboardVerification?"VERIFY this new subaccount in Paystack Dashboard before its first payout.":"Confirm test/live split checkout before using real funds."),true);
+    }catch(error){paystackSetupMessage("Could not finish Paystack setup: "+error.message)}
+    finally{setBusy(button,false)}
+});
+$("#paystack-existing-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    const driverId=$("#paystack-driver-select").value;
+    const subaccountCode=$("#paystack-existing-code").value.trim();
+    if(!driverId||!$("#paystack-existing-consent").checked||!/^ACCT_[A-Za-z0-9]+$/.test(subaccountCode)){
+        paystackSetupMessage("Select a driver, enter a valid existing ACCT_ code and confirm ownership.");
+        return;
+    }
+    const button=$("#paystack-link-button");setBusy(button,true);
+    try{
+        const result=await apiRequest("/drivers/"+encodeURIComponent(driverId)+"/paystack/link",{
+            method:"POST",body:JSON.stringify({subaccountCode,confirmedOwnerConsent:true})
+        });
+        $("#paystack-existing-code").value="";
+        $("#paystack-existing-consent").checked=false;
+        clearVerifiedBankSelection();
+        await refreshPaystackDriverChoices(driverId);
+        paystackSetupMessage("Linked existing Paystack subaccount "+result.subaccountCode+
+            " ("+result.accountName+"). "+(result.requiresDashboardVerification?"Verify it in your Paystack Dashboard before expecting settlements.":"Run the checkout test."),true);
+    }catch(error){paystackSetupMessage("Could not link existing subaccount: "+error.message)}
+    finally{setBusy(button,false)}
+});
+
 $("#login-button").addEventListener("click", () => {
     loginButtonClicked = true;
 });
@@ -696,6 +843,7 @@ $("#login-form").addEventListener("submit", async (event) => {
         csrfToken = session?.csrfToken || null;
         showDispatcher();
         await refreshGeneratedDriverId();
+        await initializePaystackSetup();
         await loadRides();
         await checkForNewRideRequests();
         startRideAlerts();
@@ -741,6 +889,7 @@ async function initialize() {
             if (!csrfToken) throw new Error("Dispatcher security token unavailable.");
             showDispatcher();
             await refreshGeneratedDriverId();
+            await initializePaystackSetup();
             await loadRides();
             await checkForNewRideRequests();
             startRideAlerts();
