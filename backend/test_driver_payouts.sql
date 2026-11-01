@@ -19,6 +19,15 @@ create table public.oka_rides_rides (
 
 \ir ../supabase/migrations/20261021190000_create_driver_earnings_ledger.sql
 
+create table public.oka_rides_drivers (
+  driver_id text primary key,
+  status text,
+  verification_status text
+);
+
+-- Apply the cutover after the original schema, before writing new rides.
+\ir ../supabase/migrations/20261101160000_paystack_platform_daily_manual_settlement.sql
+
 insert into public.oka_rides_rides
   (reference,status,payment_status,payment_method,payment_reference,driver_id,driver_name,fare)
 values
@@ -130,6 +139,45 @@ begin
   exception when others then
     if sqlerrm='Duplicate reference accepted' then raise; end if;
   end;
+end;
+$$;
+
+-- New Paystack checkout without a split is now payable manually after completion.
+-- An older Paystack checkout with no mode remains flagged as legacy split,
+-- even though both use the same PAYSTACK payment method.
+insert into public.oka_rides_rides (
+  reference,status,payment_status,payment_method,payment_reference,
+  driver_id,driver_name,fare,paystack_settlement_mode
+) values (
+  'TEST-PAYSTACK-MANUAL','PICKED UP','PAID','PAYSTACK','PAYSTACK-MANUAL-1',
+  'DRV-1','Driver Test',100.00,'MANUAL'
+);
+update public.oka_rides_rides set status='COMPLETED'
+where reference='TEST-PAYSTACK-MANUAL';
+do $$
+declare v_result jsonb;
+begin
+  if not exists (
+    select 1 from public.oka_rides_driver_earnings
+     where ride_reference='TEST-PAYSTACK-MANUAL'
+       and payment_method='PAYSTACK' and status='UNPAID'
+       and driver_earning_kobo=8500 and platform_commission_kobo=1500
+  ) then raise exception 'New Paystack payment was not added to manual driver payout'; end if;
+  if (select status from public.oka_rides_driver_earnings where ride_reference='TEST-PAYSTACK')
+       <> 'PROVIDER_SPLIT' then
+    raise exception 'Legacy Paystack split misclassified as manual payout';
+  end if;
+  v_result := public.oka_rides_settle_driver_day(
+    'DRV-1',(now() at time zone 'Africa/Lagos')::date,
+    'BANK-TRANSFER-PAYSTACK-2',1,8500::bigint,'dispatcher'
+  );
+  if (v_result->>'amountKobo')::bigint <> 8500 then
+    raise exception 'New Paystack driver payout was not calculated';
+  end if;
+  if (select status from public.oka_rides_driver_earnings where ride_reference='TEST-PAYSTACK')
+       <> 'PROVIDER_SPLIT' then
+    raise exception 'Payout incorrectly included legacy split';
+  end if;
 end;
 $$;
 

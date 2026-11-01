@@ -242,6 +242,12 @@ class DriverPaystackConnect(DriverBankLookup):
     confirmedOwnerConsent: bool
 
 
+class DriverManualBankProfile(DriverBankLookup):
+    bankName: str = Field(min_length=2, max_length=120)
+    confirmedAccountName: str = Field(min_length=3, max_length=180)
+    confirmedOwnerConsent: bool
+
+
 class DriverPaystackLink(BaseModel):
     subaccountCode: str = Field(pattern=r"^ACCT_[A-Za-z0-9]+$")
     confirmedOwnerConsent: bool
@@ -1685,6 +1691,10 @@ async def list_drivers(_: str = Depends(require_dispatcher_session)):
                 "lastLocationAt": row.get("last_location_at"),
                 "eligible": eligible,
                 "paystackSubaccountLinked": bool(str(row.get("paystack_subaccount_code") or "").strip()),
+                "payoutBankVerified": bool(row.get("payout_bank_verified_at")),
+                "payoutBankName": row.get("payout_bank_name"),
+                "payoutAccountName": row.get("payout_account_name"),
+                "payoutAccountLast4": str(row.get("payout_account_number") or "")[-4:],
             }
         )
 
@@ -2768,6 +2778,9 @@ async def record_payment_ledger(ride: dict, reference: str, amount_kobo: int, me
 
 async def finalize_paystack_payment(ride: dict, reference: str, transaction: dict) -> dict:
     validate_paystack_transaction(transaction, ride, reference)
+    # A split-bearing legacy checkout must never be relabelled as payable
+    # under the new manual model. The ledger trigger reads the mode set at
+    # initialization, not the payment method alone.
     amount_kobo = int(transaction.get("amount"))
     if paystack_payment_already_applied(ride, reference):
         await record_payment_ledger(ride, reference, amount_kobo, "PAYSTACK", "PAID", {
@@ -2821,17 +2834,16 @@ async def initialize_paystack_payment(
     driver = await get_driver_record(driver_id)
     if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
         raise HTTPException(status_code=409, detail="The assigned driver is not eligible to receive payments.")
-    split_config = paystack_split_config(driver)
-    await validate_paystack_subaccount_for_current_key(
-        driver.get("paystack_subaccount_code", "")
-    )
-
+    # Full fare is collected on the Oka Rides Paystack account. Driver
+    # earnings are accrued after COMPLETED and paid manually each day.
+    # Do NOT set subaccount, split, split_code or transaction_charge here.
     payment_reference = f"OKA-{secrets.token_hex(12).upper()}"
     rows = await supabase_request(
         "PATCH",
         SUPABASE_TABLE_RIDES,
         params={"id": f"eq.{ride.get('id')}", "customer_id": f"eq.{customer_id}", "status": "eq.DRIVER ASSIGNED", "payment_status": "neq.PAID"},
-        json_body={"payment_reference": payment_reference, "payment_method": "PAYSTACK", "payment_status": "PENDING"},
+        json_body={"payment_reference": payment_reference, "payment_method": "PAYSTACK",
+                   "payment_status": "PENDING", "paystack_settlement_mode": "MANUAL"},
         action_description="Paystack payment initialization",
     )
     if not rows:
@@ -2849,14 +2861,15 @@ async def initialize_paystack_payment(
             "currency": "NGN",
             "reference": payment_reference,
             "callback_url": callback_url,
-            "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference},
-            **split_config,
+            "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference,
+                         "settlement_mode": "PLATFORM_MANUAL"},
         })
     except HTTPException:
         await supabase_request(
             "PATCH", SUPABASE_TABLE_RIDES,
             params={"id": f"eq.{ride.get('id')}", "payment_reference": f"eq.{payment_reference}"},
-            json_body={"payment_reference": None, "payment_method": None},
+            json_body={"payment_reference": None, "payment_method": None,
+                       "paystack_settlement_mode": None},
             action_description="Paystack initialization rollback",
         )
         raise
@@ -2867,7 +2880,8 @@ async def initialize_paystack_payment(
         await supabase_request(
             "PATCH", SUPABASE_TABLE_RIDES,
             params={"id": f"eq.{ride.get('id')}", "payment_reference": f"eq.{payment_reference}"},
-            json_body={"payment_reference": None, "payment_method": None, "payment_status": "PENDING"},
+            json_body={"payment_reference": None, "payment_method": None,
+                       "paystack_settlement_mode": None, "payment_status": "PENDING"},
             action_description="Paystack invalid checkout rollback",
         )
         raise HTTPException(status_code=502, detail="Paystack did not return a valid checkout URL.")
@@ -2999,13 +3013,76 @@ async def require_driver_without_subaccount(driver_id: str) -> dict:
     return driver
 
 
+@app.post("/api/drivers/{driver_id}/payout-bank")
+async def save_driver_manual_payout_bank(
+    data: DriverManualBankProfile,
+    driver_id: str = Path(min_length=1),
+    dispatcher_id: str = Depends(require_dispatcher_session),
+):
+    """Resolve account with Paystack and store for manual bank transfers only."""
+    if not data.confirmedOwnerConsent:
+        raise HTTPException(status_code=422, detail="Confirm receiving bank ownership and driver consent.")
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=409, detail="Verify and activate the driver first.")
+    await enforce_shared_rate_limit("oka-bank-profile:" + driver_id, 8, 3600,
+                                    "Too many payout bank updates. Contact dispatch.")
+    verified = await resolve_driver_bank_account(data.bankCode, data.accountNumber)
+    confirmed = " ".join(str(verified["account_name"]).casefold().split())
+    submitted = " ".join(data.confirmedAccountName.casefold().split())
+    if confirmed != submitted:
+        raise HTTPException(status_code=409, detail="The verified bank account name has changed. Resolve it again.")
+    rows = await supabase_request(
+        "PATCH", SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}", "status": "eq.ACTIVE",
+                "verification_status": "eq.VERIFIED"},
+        json_body={
+            "payout_bank_code": data.bankCode,
+            "payout_bank_name": data.bankName.strip(),
+            "payout_account_number": data.accountNumber,
+            "payout_account_name": str(verified["account_name"]).strip(),
+            "payout_bank_verified_at": datetime.now(timezone.utc).isoformat(),
+        },
+        action_description="manual driver payout bank verification",
+    )
+    if not rows:
+        raise HTTPException(status_code=409, detail="Driver record changed during bank verification.")
+    try:
+        await write_audit_log("dispatcher", dispatcher_id, "driver.payout_bank_updated", "driver",
+                              driver_id, {"bank_code": data.bankCode, "account_last4": data.accountNumber[-4:]})
+    except HTTPException:
+        pass
+    return {"saved": True, "driverId": driver_id, "bankName": data.bankName.strip(),
+            "accountName": str(verified["account_name"]).strip(),
+            "maskedAccount": "****" + data.accountNumber[-4:]}
+
+
+@app.get("/api/drivers/{driver_id}/payout-bank")
+async def get_driver_manual_payout_bank(
+    driver_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    """Only an authenticated dispatcher may retrieve the full bank details."""
+    driver = await get_driver_record(driver_id)
+    if not driver.get("payout_bank_verified_at"):
+        raise HTTPException(status_code=404, detail="This driver has no verified payout bank saved.")
+    return {"driverId": driver_id,
+            "bankName": driver.get("payout_bank_name"),
+            "bankCode": driver.get("payout_bank_code"),
+            "accountName": driver.get("payout_account_name"),
+            "accountNumber": driver.get("payout_account_number"),
+            "verifiedAt": driver.get("payout_bank_verified_at")}
+
+
 @app.post("/api/drivers/{driver_id}/paystack/bank-lookup")
 async def lookup_driver_bank(
     data: DriverBankLookup,
     driver_id: str = Path(min_length=1),
     _: str = Depends(require_dispatcher_session),
 ):
-    await require_driver_without_subaccount(driver_id)
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=409, detail="Verify and activate driver before verifying bank details.")
     await enforce_shared_rate_limit("oka-driver-bank:" + driver_id, 12, 3600,
                                     "Too many bank verification attempts. Try again later.")
     result = await resolve_driver_bank_account(data.bankCode, data.accountNumber)

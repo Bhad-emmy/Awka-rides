@@ -147,5 +147,59 @@ class PaystackHelperTests(unittest.TestCase):
             validate_paystack_transaction(transaction, self.ride, "OKA-TEST-123")
 
 
+class PlatformCollectionCheckoutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_initialize_collects_full_fare_without_split_or_driver_subaccount(self):
+        from fastapi import Request
+        from backend.main_supabase import initialize_paystack_payment
+        ride = {
+            "id": "ride-test", "reference": "R-1",
+            "status": "DRIVER ASSIGNED", "payment_status": "PENDING",
+            "fare": 1000.0, "fare_confirmed": True,
+            "email": "customer@example.com", "driver_id": "oka-test",
+        }
+        driver = {"driver_id": "oka-test", "status": "ACTIVE",
+                  "verification_status": "VERIFIED", "paystack_subaccount_code": None}
+        checkout = {"authorization_url": "https://checkout.paystack.com/test-token"}
+        request = Request({"type": "http", "method": "POST", "path": "/", "query_string": b"",
+                           "headers": [], "server": ("localhost", 8000),
+                           "scheme": "https", "client": ("127.0.0.1", 1234)})
+        with (
+            patch("backend.main_supabase.get_customer_ride", new=AsyncMock(return_value=ride)),
+            patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value=driver)),
+            patch("backend.main_supabase.supabase_request",
+                  new=AsyncMock(return_value=[{"id": "ride-test"}])) as database,
+            patch("backend.main_supabase.paystack_api", new=AsyncMock(return_value=checkout)) as provider,
+            patch("backend.main_supabase.secrets.token_hex", return_value="aabbcc"),
+        ):
+            result = await initialize_paystack_payment(request, reference="R-1", customer_id="customer-1")
+        self.assertEqual(result["amount"], 100000)
+        provider_payload = provider.await_args.args[2]
+        self.assertEqual(provider_payload["amount"], 100000)
+        self.assertEqual(provider_payload["currency"], "NGN")
+        self.assertEqual(provider_payload["metadata"]["settlement_mode"], "PLATFORM_MANUAL")
+        for forbidden in ("split", "split_code", "subaccount", "transaction_charge"):
+            self.assertNotIn(forbidden, provider_payload)
+        self.assertEqual(database.await_args.kwargs["json_body"]["paystack_settlement_mode"], "MANUAL")
+
+    async def test_new_paystack_checkout_requires_real_eligible_driver_but_not_subaccount(self):
+        from fastapi import Request
+        from backend.main_supabase import initialize_paystack_payment
+        ride = {"id": "ride-test", "reference": "R-1",
+                "status": "DRIVER ASSIGNED", "payment_status": "PENDING",
+                "fare": 1000, "fare_confirmed": True,
+                "email": "customer@example.com", "driver_id": "oka-test"}
+        request = Request({"type": "http", "method": "POST", "path": "/", "headers": []})
+        with (
+            patch("backend.main_supabase.get_customer_ride", new=AsyncMock(return_value=ride)),
+            patch("backend.main_supabase.get_driver_record",
+                  new=AsyncMock(return_value={"status": "INACTIVE", "verification_status": "VERIFIED"})),
+            patch("backend.main_supabase.paystack_api", new=AsyncMock()) as api,
+        ):
+            with self.assertRaises(HTTPException) as rejection:
+                await initialize_paystack_payment(request, reference="R-1", customer_id="customer-1")
+        self.assertEqual(rejection.exception.status_code, 409)
+        api.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

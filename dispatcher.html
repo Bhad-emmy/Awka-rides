@@ -58,23 +58,16 @@
             </form>
         </section>
         <section class="panel details" id="driver-paystack-setup" aria-labelledby="driver-paystack-title" style="margin-bottom:18px">
-            <div class="details-top">
-                <div><h2 id="driver-paystack-title">Driver bank account &amp; Paystack split setup</h2>
-                    <p>After registering a driver, connect their verified bank account for the 85% Paystack split. This must be completed before online checkout can work for that driver.</p></div>
-                <button class="button light" id="paystack-check-button" type="button">Check Paystack</button>
+            <div class="details-top"><div><h2 id="driver-paystack-title">Driver bank details for daily payouts</h2>
+                <p>Oka Rides collects the full fare through Paystack. At the end of the day, we calculate each driver's 85%, and dispatch pays it by bank transfer after confirming the funds are available.</p></div>
+                <button class="button light" id="paystack-check-button" type="button">Check Paystack connection</button>
             </div>
-            <p class="muted" id="paystack-readiness-message" role="status">Checking Paystack configuration…</p>
+            <p class="muted" id="paystack-readiness-message" role="status">Checking Paystack payment connection…</p>
             <form id="driver-paystack-form">
                 <div class="driver-create-grid">
-                    <label>Registered driver
-                        <select id="paystack-driver-select" required aria-label="Select driver for Paystack payouts"><option value="">Choose driver</option></select>
-                    </label>
-                    <label>Receiving bank
-                        <select id="paystack-bank-code" required aria-label="Select the driver's payout bank"><option value="">Load Paystack banks</option></select>
-                    </label>
-                    <label>Driver's bank account number
-                        <input id="paystack-account-number" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]{10}" minlength="10" maxlength="10" placeholder="10-digit bank account number" required>
-                    </label>
+                    <label>Registered driver<select id="paystack-driver-select" required><option value="">Choose a driver</option></select></label>
+                    <label>Driver's receiving bank<select id="paystack-bank-code" required><option value="">Load banks</option></select></label>
+                    <label>Driver's bank account number<input id="paystack-account-number" type="text" pattern="[0-9]{10}" inputmode="numeric" minlength="10" maxlength="10" autocomplete="off" placeholder="10-digit account number" required></label>
                 </div>
                 <div class="action-row">
                     <button class="button secondary" type="button" id="paystack-verify-bank">Verify account name</button>
@@ -83,19 +76,12 @@
                 <p id="paystack-resolved-name" class="muted" role="status">Account name not verified yet.</p>
                 <label style="display:block;margin:12px 0;font-size:13px">
                     <input id="paystack-owner-consent" type="checkbox" style="width:auto;display:inline-block;margin-right:8px">
-                    I checked the driver's identity, confirmed this receiving account belongs to them, obtained consent, and verified the displayed account name.
+                    I confirmed the driver's identity, checked the resolved bank account name and obtained consent to store these receiving details for bank transfers.
                 </label>
-                <button id="paystack-connect-button" type="submit" class="button primary" disabled>Create &amp; link Paystack subaccount</button>
+                <button class="button primary" type="submit" id="paystack-connect-button" disabled>Save verified payout bank</button>
             </form>
-            <details style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">Already created a subaccount in Paystack?</summary>
-                <form id="paystack-existing-form" class="inline-form" style="margin-top:12px">
-                    <input id="paystack-existing-code" placeholder="ACCT_..." aria-label="Existing Paystack subaccount code" maxlength="80" autocomplete="off" required>
-                    <label style="font-size:12px"><input id="paystack-existing-consent" type="checkbox" style="display:inline-block;width:auto;margin-right:6px" required>Confirmed this subaccount belongs to the selected driver</label>
-                    <button class="button secondary" id="paystack-link-button" type="submit">Link existing code</button>
-                </form>
-            </details>
             <p id="paystack-onboard-feedback" class="feedback" role="status" aria-live="polite"></p>
-            <p class="muted" style="font-size:12px">Verify new payout subaccounts in the Paystack Dashboard before expecting their first bank settlement. Keep test and live subaccounts separate. Bank account numbers are not saved in Oka Rides.</p>
+            <p class="muted" style="font-size:12px">Paystack bank-name verification does not split a payment. View daily driver totals and record completed bank transfers under <a href="/driver-earnings.html">Driver daily payouts</a>.</p>
         </section>
         <div class="layout">
             <section class="panel queue" aria-labelledby="queue-title"><div class="queue-header"><h2 id="queue-title">Incoming rides</h2><span class="muted" id="ride-count">0</span></div><div class="ride-list" id="ride-list"><div class="empty">Loading rides...</div></div></section>
@@ -114,6 +100,6 @@
     </main>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="dispatcher.js?v=20261101-paystack-driver-onboarding-1"></script>
+    <script src="dispatcher.js?v=20261101-manual-daily-payout-2"></script>
 </body>
 </html>
