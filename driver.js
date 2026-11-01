@@ -40,7 +40,7 @@ function resetDriverEarnings(){
 }
 function earningsStatus(status){
   if(status==="PAID_OUT")return {label:"Bank payout recorded",style:"settled"};
-  if(status==="PROVIDER_SPLIT")return {label:"Paystack split allocated",style:"settled"};
+  if(status==="PROVIDER_SPLIT")return {label:"Legacy split — ask dispatch",style:"settled"};
   return {label:"Awaiting bank payout",style:"pending"};
 }
 function renderDriverEarnings(data){
