@@ -8,14 +8,16 @@
 :root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#172033;background:#f4f7fb}
 *{box-sizing:border-box}body{margin:0}.top{background:#0f172a;color:#fff;padding:18px max(4%,calc((100% - 1200px)/2));display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{font-weight:800;letter-spacing:.04em}.wrap{max-width:1200px;margin:28px auto;padding:0 18px}.head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:#64748b}.btn{display:inline-block;border:0;border-radius:8px;padding:10px 14px;font-weight:700;text-decoration:none;cursor:pointer;background:#e2e8f0;color:#172033}.panel{background:white;border:1px solid #e2e8f0;border-radius:12px;padding:18px;margin-top:18px;overflow:auto}.summary{display:flex;gap:12px;flex-wrap:wrap}.metric{padding:14px;border:1px solid #e2e8f0;border-radius:9px;min-width:150px}.metric strong{display:block;font-size:22px;margin-top:4px}table{border-collapse:collapse;width:100%;min-width:900px}th,td{text-align:left;padding:12px;border-bottom:1px solid #e2e8f0;font-size:13px}th{background:#f8fafc;color:#475569}code{overflow-wrap:anywhere}.status{font-weight:800}.status.PAID{color:#15803d}.status.PENDING{color:#b45309}.status.FAILED{color:#b91c1c}.message{padding:14px;color:#475569}
 </style>
+<link rel="stylesheet" href="/ui-enhancements.css?v=20261101">
 </head>
-<body>
+<body class="payments-page">
 <header class="top"><div class="brand">ỌKA-RIDES · PAYMENTS</div><a class="btn" href="/dispatcher.html">Back to dispatcher</a></header>
 <main class="wrap">
 <div class="head"><div><h1>Payment records</h1><p class="muted">Verified Paystack payments and dispatcher-recorded offline payments.</p></div><button class="btn" id="refresh">Refresh records</button></div>
 <div class="summary"><div class="metric">Paid transactions<strong id="paid-count">—</strong></div><div class="metric">Paid total<strong id="paid-total">—</strong></div><div class="metric">All records<strong id="record-count">—</strong></div></div>
 <section class="panel"><div id="message" class="message">Loading payment records…</div><table id="table" hidden><thead><tr><th>Date created</th><th>Ride</th><th>Method</th><th>Amount</th><th>Status</th><th>Payment reference</th><th>Paid at</th></tr></thead><tbody id="rows"></tbody></table></section>
 </main>
+<footer class="oka-legal-footer" aria-label="Legal information"><span>© Ọka Rides</span><a href="/privacy.html">Privacy Policy</a><a href="/terms.html">Terms &amp; Conditions</a></footer>
 <script>
 const money=kobo=>'₦'+(Number(kobo||0)/100).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
