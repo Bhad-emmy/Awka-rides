@@ -59,6 +59,31 @@
       <button id="ride-action" class="primary full">Mark picked up</button>
     </section>
 
+    <section id="earnings-section" class="card earnings-card" aria-labelledby="earnings-title">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">MY EARNINGS</span>
+          <h2 id="earnings-title">Daily earnings</h2>
+        </div>
+      </div>
+      <div class="earnings-controls">
+        <label for="earnings-date">Business date (Nigeria)
+          <input id="earnings-date" type="date" aria-label="Select earnings date">
+        </label>
+        <button id="earnings-refresh" class="secondary" type="button">Refresh</button>
+      </div>
+      <div class="earnings-grid">
+        <div class="earnings-stat"><span>Completed paid rides</span><strong id="earnings-count">—</strong></div>
+        <div class="earnings-stat"><span>My share (85%)</span><strong id="earnings-total">—</strong></div>
+        <div class="earnings-stat highlight"><span>Awaiting bank payout</span><strong id="earnings-pending">—</strong></div>
+        <div class="earnings-stat"><span>Bank paid</span><strong id="earnings-bank-paid">—</strong></div>
+        <div class="earnings-stat"><span>Paystack allocated</span><strong id="earnings-paystack">—</strong></div>
+      </div>
+      <p id="earnings-message" class="earnings-message" role="status" aria-live="polite">Loading earnings…</p>
+      <div id="earnings-rides" class="earnings-rides"></div>
+      <p class="earnings-note">Only completed, paid rides count. Paystack allocations are not additional bank payouts; confirm final provider settlement with dispatch. Only dispatch can record bank transfers.</p>
+    </section>
+
     <section id="waiting-section" class="empty-card">
       <div class="empty-icon">🛺</div>
       <h2 id="waiting-title">You're offline</h2>
@@ -66,6 +91,6 @@
     </section>
   </section>
 </main>
-<script src="/driver.js?v=20261025-phone-login-1"></script>
+<script src="/driver.js?v=20261101-driver-earnings-1"></script>
 </body>
 </html>
