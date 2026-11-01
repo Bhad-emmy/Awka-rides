@@ -179,6 +179,57 @@ The Termii API key must remain server-side.
 
 The current V1 implementation sends the SMS when a driver is assigned.
 
+## Real driver onboarding and Paystack split readiness
+
+To onboard a verified driver for a real 85/15 split:
+
+1. Sign in at `/dispatcher.html`. Under **Register driver**, verify their
+   identity/vehicle/plate, enter their registered phone number and a private
+   driver PIN, then register them. The account is immediately ACTIVE/VERIFIED
+   as an intentional dispatcher-controlled pilot action.
+2. Under **Driver bank account & Paystack split setup**, click
+   **Check Paystack**. It reports whether the server can authenticate to
+   Paystack and whether the key is in TEST or LIVE mode (never its value).
+   This is connectivity verification, not proof of an actual split.
+3. Select the registered driver, choose their bank, enter the 10-digit
+   receiving account number and click **Verify account name**. Paystack
+   resolves the account. Check it against the driver's ID and obtain their
+   consent before ticking the ownership confirmation.
+4. Click **Create & link Paystack subaccount**. The backend creates a
+   Paystack payout subaccount with 15% main-account commission and links its
+   `ACCT_...` code to that driver. No raw bank account number is persisted
+   in Oka Rides. If you already created the subaccount in the Paystack
+   Dashboard, use **Link existing code** instead. Never attach one
+   subaccount to two drivers.
+5. In the **Paystack Dashboard → Subaccounts**, verify the newly created
+   payout subaccount. Paystack may hold its first settlement until verification.
+   Check the exact receiving bank name/number before enabling paid rides.
+6. Test a complete customer journey using a matching TEST subaccount and
+   `sk_test_...` key: customer booking → dispatcher/automatic assignment
+   → confirmed fare → hosted Paystack checkout → successful server verify
+   and/or signed webhook → pickup → completed ride → provider split
+   appears under the driver and dispatcher earnings. Then review the
+   Paystack split/settlement report against the intended **85% driver,
+   15% platform**, with platform bearing fees.
+7. Only after the TEST journey passes, configure LIVE credentials and
+   create or link a LIVE Paystack subaccount. The two environments are
+   separate. Repeat a **small, deliberate real-money transaction** and
+   verify the correct driver bank settlement before opening the flow to
+   regular customers. Do not mark a Paystack-paid ride as a manual OPay
+   bank payout; that would double-pay the driver.
+
+**Protected endpoints:** the Paystack readiness check, bank list, bank
+name verification, subaccount creation and existing-code association
+are dispatcher-only API operations. Bank and payment secret credentials
+are never stored or exposed to the driver client.
+
+**Limitations:** A successful Paystack API connectivity check does not
+prove the hosted checkout works, that webhooks reach production, or that
+money has reached the driver's bank. A new LIVE subaccount requires
+Paystack Dashboard verification. Manual OPay is still a fallback for
+dispatcher-confirmed offline transactions and does **not** use Paystack's
+automatic split or trigger instant driver settlement.
+
 ## Driver daily earnings and payout reconciliation
 
 The dispatcher has a protected **Driver daily payouts** dashboard at
