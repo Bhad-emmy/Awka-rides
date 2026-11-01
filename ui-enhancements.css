@@ -1,0 +1,158 @@
+/* Shared, additive UI improvements for Oka Rides. No API or auth changes. */
+:root{--oka-ease:cubic-bezier(.2,.75,.25,1)}
+html{scroll-behavior:smooth}
+body{max-width:100%;overflow-x:clip}
+body *{overflow-wrap:break-word}
+input,select,textarea{max-width:100%;min-width:0}
+a,button,input,select,textarea{-webkit-tap-highlight-color:transparent}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #16a34a;outline-offset:3px}
+a,button{touch-action:manipulation}
+button:not(:disabled),.button:not([aria-disabled="true"]){transition:background-color .18s ease,color .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s var(--oka-ease)}
+@media(hover:hover) and (pointer:fine){
+  button:not(:disabled):hover,.button:not([aria-disabled="true"]):hover{filter:brightness(.98)}
+  .customer-page .service-tiles button:hover,.customer-page .where-card:hover,.driver-page .card:hover,.dispatcher-page .ride-item:hover{box-shadow:0 9px 26px rgba(21,75,42,.09)}
+}
+button:not(:disabled):active,.button:not([aria-disabled="true"]):active{transform:scale(.985)}
+.customer-page .app-shell,.customer-page #screen,.customer-page .screen,.driver-page .driver-app,.dispatcher-page .panel{min-width:0}
+.customer-page .screen.active:not(.splash-screen),.driver-page .view.active{animation:oka-fade-up .26s var(--oka-ease) both}
+.customer-page .ride-card,.customer-page .previous-ride-card,.driver-page .card,.driver-page .driver-card,.driver-page .empty-card,.dispatcher-page .panel,.earnings-page .panel,.payments-page .panel,.legal-page .legal-card{animation:oka-fade-up .3s var(--oka-ease) both}
+.dispatcher-page .alert-banner:not([hidden]){animation:oka-fade-up .2s var(--oka-ease) both}
+.customer-page .ride-detail-loading::before{content:"";display:inline-block;width:16px;height:16px;border:2px solid #bbdec9;border-top-color:#16804c;border-radius:50%;vertical-align:middle;margin-right:9px;animation:oka-spin .8s linear infinite}
+.customer-page .app-form :is(input,select,textarea),.driver-page input,.dispatcher-page :is(input,select){min-width:0}
+.customer-page .two>*,
+.customer-page .service-tiles>*,
+.customer-page .ride-card>*,
+.customer-page .previous-ride-main>*,
+.driver-page .earnings-grid>*,
+.dispatcher-page .detail-grid>*{min-width:0}
+.customer-page .oka-map,.dispatcher-page .map{width:100%;max-width:100%;min-width:0}
+.customer-page .oka-map .leaflet-control-container,.dispatcher-page .map .leaflet-control-container{max-width:100%}
+.driver-page .driver-app{width:min(520px,100%);min-height:100svh}
+.driver-page .actions{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr)}
+.driver-page .earnings-ride{min-width:0}
+.driver-page .earnings-ride .amount{min-width:0;overflow-wrap:anywhere}
+.dispatcher-page main{max-width:100%}
+.dispatcher-page .toolbar,.dispatcher-page .toolbar-actions,.dispatcher-page .topbar,.dispatcher-page .details-top{min-width:0}
+.dispatcher-page .toolbar{flex-wrap:wrap}
+.dispatcher-page .toolbar-actions{flex-wrap:wrap}
+.dispatcher-page .toolbar>a{white-space:normal;text-align:center;text-decoration:none}
+.dispatcher-page .inline-form>*{min-width:0}
+.dispatcher-page .driver-control{flex-wrap:wrap}
+.dispatcher-page .driver-control select{min-width:0}
+.dispatcher-page .details,.dispatcher-page .driver-option{min-width:0}
+.earnings-page .wrap,.payments-page .wrap{max-width:100%;min-width:0}
+.earnings-page .panel,.payments-page .panel{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.earnings-page table,.payments-page table{width:max-content;min-width:100%}
+.earnings-page .summary,.payments-page .summary{min-width:0}
+.earnings-page .metric,.payments-page .metric{min-width:0;flex:1 1 160px}
+.oka-legal-footer{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px 16px;padding:22px 14px 28px;color:#64748b;font:12px/1.5 Arial,Helvetica,sans-serif;text-align:center}
+.oka-legal-footer a,.legal-inline a{color:#167a47;text-underline-offset:3px;font-weight:700}
+.oka-legal-footer a{display:inline-flex;align-items:center;justify-content:center;min-height:44px}
+.customer-page .oka-legal-footer{padding-bottom:108px;background:#fff}
+.customer-page .app-shell.splash-mode .oka-legal-footer{display:none}
+.driver-page .oka-legal-footer{padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+.dispatcher-page .oka-legal-footer,.earnings-page .oka-legal-footer,.payments-page .oka-legal-footer{background:transparent}
+.legal-inline{font-size:12px;line-height:1.6;color:#64748b;text-align:center;margin:10px auto;max-width:540px}
+.splash-legal{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 20px;font-size:12px;margin:7px 0 4px}
+.splash-legal a{color:#fff;text-decoration:underline;text-underline-offset:3px;min-height:35px;display:inline-flex;align-items:center}
+@media(max-width:900px){
+  .dispatcher-page .layout{grid-template-columns:minmax(0,1fr)}
+  .dispatcher-page .ride-list{max-height:360px}
+}
+@media(max-width:700px){
+  .earnings-page .top,.payments-page .top{flex-wrap:wrap;padding:16px}
+  .earnings-page .wrap,.payments-page .wrap{margin:16px auto;padding:0 12px}
+  .earnings-page .head,.payments-page .head{align-items:stretch}
+  .earnings-page .head>*,
+  .payments-page .head>*{min-width:0}
+  .earnings-page .panel,.payments-page .panel{padding:12px}
+  .dispatcher-page .topbar{flex-wrap:wrap;gap:8px}
+  .dispatcher-page .toolbar-actions{width:100%}
+  .dispatcher-page .toolbar-actions>*{flex:1 1 120px;min-height:44px}
+}
+@media(max-width:599px){
+  .customer-page .screen{padding:22px clamp(14px,5vw,24px) 30px}
+  .customer-page .splash-screen{padding:clamp(14px,5vw,24px);padding-bottom:max(14px,env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain}
+  .customer-page .splash-mark{min-height:75px;flex:1 1 90px}
+  .customer-page .splash-keke{transform:scale(.83)}
+  .customer-page .splash-bottom h1{font-size:clamp(26px,8vw,34px)}
+  .customer-page .page-head h1{font-size:clamp(24px,6vw,32px)}
+  .customer-page .home-heading{font-size:clamp(29px,9vw,40px)}
+  .customer-page .service-tiles{gap:8px;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .customer-page .service-tiles button{min-width:0;min-height:144px;padding:8px 4px 12px}
+  .customer-page .service-tiles b{font-size:clamp(12px,3.5vw,17px)}
+  .customer-page .service-tiles small{font-size:clamp(10px,2.7vw,13px)}
+  .customer-page .tile-art{height:72px}
+  .customer-page .keke-art:after{font-size:46px}
+  .customer-page .schedule-art:after{font-size:52px}
+  .customer-page .box-art{font-size:44px}
+  .customer-page .where-card{min-width:0;padding:0 12px;gap:9px}
+  .customer-page .where-card strong{font-size:clamp(16px,5vw,21px)}
+  .customer-page .where-card .later{padding:9px 10px}
+  .customer-page .ride-list .ride-card{grid-template-columns:48px minmax(0,1fr) auto!important;gap:9px!important}
+  .customer-page .ride-thumb{width:48px;height:48px;font-size:27px}
+  .customer-page .previous-ride-main{grid-template-columns:48px minmax(0,1fr) auto;gap:9px}
+  .customer-page .ride-card .fare{white-space:normal!important;overflow-wrap:anywhere!important;font-size:14px!important}
+  .customer-page .account-card button,.customer-page .account-card a{grid-template-columns:40px minmax(0,1fr) 16px;gap:9px;padding:12px}
+  .customer-page input,.customer-page select,.customer-page textarea,.driver-page input,.dispatcher-page input,.dispatcher-page select{font-size:16px}
+  .customer-page .oka-map{height:clamp(220px,36vh,330px);min-height:0;margin-bottom:20px}
+  .dispatcher-page main{width:calc(100% - 24px);margin:14px auto}
+  .dispatcher-page .details{padding:14px}
+  .dispatcher-page .detail-grid{grid-template-columns:minmax(0,1fr)}
+  .dispatcher-page .detail-grid .wide{grid-column:auto}
+  .dispatcher-page .driver-list{grid-template-columns:minmax(0,1fr)}
+  .dispatcher-page .inline-form{align-items:stretch}
+  .dispatcher-page .inline-form>*{flex:1 1 100%;width:100%;min-height:44px}
+  .dispatcher-page .action-row .button{min-height:44px}
+  .dispatcher-page .map{height:clamp(210px,36vh,320px)}
+  .driver-page .driver-app{padding:20px 14px calc(20px + env(safe-area-inset-bottom))}
+  .driver-page .brand{margin-bottom:26px}
+  .driver-page .card,.driver-page .driver-card,.driver-page .empty-card{padding:16px}
+  .driver-page .view h1{font-size:clamp(26px,8vw,34px)}
+  .driver-page .driver-card{gap:8px;flex-wrap:wrap}
+  .driver-page .earnings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .driver-page .earnings-controls{flex-wrap:wrap}
+}
+@media(max-width:380px){
+  .customer-page .two{grid-template-columns:minmax(0,1fr)}
+  .customer-page .page-head{gap:8px}
+  .customer-page .promo-card{grid-template-columns:42px minmax(0,1fr);gap:8px;padding:12px}
+  .customer-page .promo-card .promo-logo{max-width:42px}
+  .customer-page .splash-mark{min-height:48px}
+  .driver-page .actions{grid-template-columns:minmax(0,1fr)}
+  .driver-page .earnings-controls>*{flex:1 1 100%}
+  .dispatcher-page .toolbar>a{flex:1 1 100%}
+}
+@media(max-width:320px){
+  .driver-page .earnings-grid{grid-template-columns:minmax(0,1fr)}
+  .customer-page .service-tiles{gap:5px}
+  .customer-page .tile-art{height:56px}
+}
+@media(orientation:landscape) and (max-height:460px){
+  .customer-page .splash-screen{position:relative;min-height:100svh;height:auto}
+  .customer-page .splash-mark{display:none}
+  .customer-page .splash-bottom{margin-top:20px}
+  .customer-page .oka-map,.dispatcher-page .map{height:220px;min-height:0}
+}
+/* Legal pages are independent static content; they do not load customer authentication. */
+.legal-page{background:#f3f7f4;color:#1a2921;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}
+.legal-page .legal-header{background:#fff;border-bottom:1px solid #dfeae3;padding:20px clamp(16px,4vw,48px);display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.legal-page .legal-brand{font-weight:900;letter-spacing:-.025em;color:#167a47;text-decoration:none;font-size:22px}
+.legal-page .legal-header nav{display:flex;flex-wrap:wrap;gap:10px 18px}
+.legal-page .legal-header a:not(.legal-brand){color:#255c40;text-decoration:underline;text-underline-offset:3px}
+.legal-page .legal-main{max-width:880px;margin:30px auto;padding:0 clamp(12px,4vw,24px)}
+.legal-page .legal-card{background:#fff;border:1px solid #dfeae3;border-radius:20px;padding:clamp(18px,4.5vw,42px)}
+.legal-page h1{font-size:clamp(28px,6vw,42px);line-height:1.15;margin:0 0 10px}
+.legal-page h2{font-size:clamp(18px,4vw,23px);line-height:1.3;margin:28px 0 10px}
+.legal-page p{margin:10px 0}
+.legal-page ul{padding-left:22px;margin:10px 0}
+.legal-page li{margin:7px 0}
+.legal-page .draft-note{background:#fff8df;border-left:4px solid #c28e18;padding:14px 16px;border-radius:8px;margin:18px 0 26px}
+.legal-page .legal-meta{color:#68746c;font-size:13px}
+.legal-page .legal-footer{padding-bottom:36px}
+@keyframes oka-fade-up{from{opacity:.65;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes oka-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){
+  html:focus-within{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}

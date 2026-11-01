@@ -9,8 +9,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="app-test.css?v=20260930-4">
+<link rel="stylesheet" href="/ui-enhancements.css?v=20261101">
 </head>
-<body>
+<body class="customer-page">
 <div class="app-shell">
   <section class="screen splash-screen active" data-screen="splash">
     <div class="splash-brand">ỌKA<span>-RIDES</span></div>
@@ -25,6 +26,7 @@
       <button class="secondary wide" id="splash-signup">Create account</button>
       <button class="google-btn wide" id="google-login"><b>G</b> Continue with Google</button>
       <button class="text-btn continue-btn" id="continue-session" hidden>Continue to Ọka-Rides</button>
+      <div class="splash-legal"><a href="/privacy.html">Privacy Policy</a><a href="/terms.html">Terms &amp; Conditions</a></div>
       <small id="session-note"></small>
     </div>
   </section>
@@ -92,6 +94,8 @@
         <button id="previous-rides-action" data-go="previous-rides"><span class="row-icon">🛺</span><span><b>Previous Rides</b><small>View past trips and rebook a route</small></span><span class="chevron">›</span></button>
         <button id="faq-action" data-go="faq"><span class="row-icon icon-help">?</span><span><b>FAQ</b><small>Answers about using Ọka-Rides</small></span><span class="chevron">›</span></button>
         <button id="account-auth-action" data-go-login hidden><span class="row-icon icon-login"></span><span><b>Sign in / Create account</b><small>Save your ride history</small></span><span class="chevron">›</span></button>
+        <a href="/privacy.html"><span class="row-icon">🔒</span><span><b>Privacy Policy</b><small>How we handle personal information</small></span><span class="chevron">›</span></a>
+        <a href="/terms.html"><span class="row-icon">📄</span><span><b>Terms &amp; Conditions</b><small>Booking rules and responsibilities</small></span><span class="chevron">›</span></a>
         <button id="support-action" type="button"><span class="row-icon icon-help">?</span><span><b>Support</b><small>Talk to Ọka-Rides</small></span><span class="chevron">›</span></button>
       </div>
 
@@ -165,6 +169,7 @@
       <form id="app-login-form" class="app-form">
         <label>Email<input name="email" type="email" autocomplete="email" required></label>
         <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+        <p class="legal-inline">Please review our <a href="/privacy.html">Privacy Policy</a> and <a href="/terms.html">Terms &amp; Conditions</a>.</p>
         <p class="form-error" id="app-login-message"></p>
         <button class="primary wide" type="submit">Log in</button>
         <button class="google-btn wide" id="google-login-form"><b>G</b> Continue with Google</button>
@@ -180,11 +185,13 @@
         <label>Phone<input name="phone" type="tel" required></label>
         <label>Email<input name="email" type="email" required></label>
         <label>Password<input name="password" type="password" minlength="8" required></label>
+        <p class="legal-inline">Please review our <a href="/privacy.html">Privacy Policy</a> and <a href="/terms.html">Terms &amp; Conditions</a>.</p>
         <p class="form-error" id="app-signup-message"></p>
         <button class="primary wide" type="submit">Create account</button>
       </form>
     </section>
   </main>
+  <footer class="oka-legal-footer" aria-label="Legal information"><span>© Ọka Rides</span><a href="/privacy.html">Privacy Policy</a><a href="/terms.html">Terms &amp; Conditions</a></footer>
 
   <nav class="bottom-nav" hidden>
     <button class="nav-item active" data-nav="home"><span class="icon icon-home"></span><small>Home</small></button>
