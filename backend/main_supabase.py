@@ -2768,6 +2768,9 @@ async def record_payment_ledger(ride: dict, reference: str, amount_kobo: int, me
 
 async def finalize_paystack_payment(ride: dict, reference: str, transaction: dict) -> dict:
     validate_paystack_transaction(transaction, ride, reference)
+    # A split-bearing legacy checkout must never be relabelled as payable
+    # under the new manual model. The ledger trigger reads the mode set at
+    # initialization, not the payment method alone.
     amount_kobo = int(transaction.get("amount"))
     if paystack_payment_already_applied(ride, reference):
         await record_payment_ledger(ride, reference, amount_kobo, "PAYSTACK", "PAID", {
@@ -2821,17 +2824,16 @@ async def initialize_paystack_payment(
     driver = await get_driver_record(driver_id)
     if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
         raise HTTPException(status_code=409, detail="The assigned driver is not eligible to receive payments.")
-    split_config = paystack_split_config(driver)
-    await validate_paystack_subaccount_for_current_key(
-        driver.get("paystack_subaccount_code", "")
-    )
-
+    # Full fare is collected on the Oka Rides Paystack account. Driver
+    # earnings are accrued after COMPLETED and paid manually each day.
+    # Do NOT set subaccount, split, split_code or transaction_charge here.
     payment_reference = f"OKA-{secrets.token_hex(12).upper()}"
     rows = await supabase_request(
         "PATCH",
         SUPABASE_TABLE_RIDES,
         params={"id": f"eq.{ride.get('id')}", "customer_id": f"eq.{customer_id}", "status": "eq.DRIVER ASSIGNED", "payment_status": "neq.PAID"},
-        json_body={"payment_reference": payment_reference, "payment_method": "PAYSTACK", "payment_status": "PENDING"},
+        json_body={"payment_reference": payment_reference, "payment_method": "PAYSTACK",
+                   "payment_status": "PENDING", "paystack_settlement_mode": "MANUAL"},
         action_description="Paystack payment initialization",
     )
     if not rows:
@@ -2849,14 +2851,15 @@ async def initialize_paystack_payment(
             "currency": "NGN",
             "reference": payment_reference,
             "callback_url": callback_url,
-            "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference},
-            **split_config,
+            "metadata": {"ride_id": str(ride.get("id")), "ride_reference": reference,
+                         "settlement_mode": "PLATFORM_MANUAL"},
         })
     except HTTPException:
         await supabase_request(
             "PATCH", SUPABASE_TABLE_RIDES,
             params={"id": f"eq.{ride.get('id')}", "payment_reference": f"eq.{payment_reference}"},
-            json_body={"payment_reference": None, "payment_method": None},
+            json_body={"payment_reference": None, "payment_method": None,
+                       "paystack_settlement_mode": None},
             action_description="Paystack initialization rollback",
         )
         raise
@@ -2867,7 +2870,8 @@ async def initialize_paystack_payment(
         await supabase_request(
             "PATCH", SUPABASE_TABLE_RIDES,
             params={"id": f"eq.{ride.get('id')}", "payment_reference": f"eq.{payment_reference}"},
-            json_body={"payment_reference": None, "payment_method": None, "payment_status": "PENDING"},
+            json_body={"payment_reference": None, "payment_method": None,
+                       "paystack_settlement_mode": None, "payment_status": "PENDING"},
             action_description="Paystack invalid checkout rollback",
         )
         raise HTTPException(status_code=502, detail="Paystack did not return a valid checkout URL.")
