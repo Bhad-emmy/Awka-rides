@@ -3080,7 +3080,9 @@ async def lookup_driver_bank(
     driver_id: str = Path(min_length=1),
     _: str = Depends(require_dispatcher_session),
 ):
-    await require_driver_without_subaccount(driver_id)
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=409, detail="Verify and activate driver before verifying bank details.")
     await enforce_shared_rate_limit("oka-driver-bank:" + driver_id, 12, 3600,
                                     "Too many bank verification attempts. Try again later.")
     result = await resolve_driver_bank_account(data.bankCode, data.accountNumber)
