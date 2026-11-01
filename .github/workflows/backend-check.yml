@@ -21,4 +21,28 @@ jobs:
       - name: Run Paystack validation tests
         run: |
           python -m pip install pytest
-          python -m pytest backend/test_paystack.py backend/test_driver_auth.py -q
+          python -m pytest backend/test_paystack.py backend/test_driver_auth.py backend/test_driver_payouts.py -q
+
+  payout-sql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: payout_tests
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+      - name: Verify driver payout migration on isolated PostgreSQL
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d payout_tests -v ON_ERROR_STOP=1 -f backend/test_driver_payouts.sql

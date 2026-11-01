@@ -8,7 +8,8 @@ from collections import defaultdict, deque
 import json
 import secrets
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from typing import Literal
 
 import httpx
@@ -1430,6 +1431,110 @@ async def list_rides(
     return {"rides": [ride_representation(row) for row in rows]}
 
 
+class DriverPayoutRequest(BaseModel):
+    driverId: str = Field(min_length=1, max_length=120)
+    earningDate: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    payoutReference: str = Field(min_length=1, max_length=120)
+    expectedCount: int = Field(gt=0, le=2000)
+    expectedAmountKobo: int = Field(gt=0)
+
+
+@app.get("/api/driver-earnings")
+async def list_driver_earnings(
+    earning_date: str = Query(default=""),
+    _: str = Depends(require_dispatcher_session),
+):
+    if earning_date:
+        try:
+            parsed_date = date.fromisoformat(earning_date)
+            if parsed_date.isoformat() != earning_date:
+                raise ValueError("Non-canonical date")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Date must use YYYY-MM-DD format.") from exc
+    else:
+        earning_date = datetime.now(ZoneInfo("Africa/Lagos")).date().isoformat()
+    rows = await supabase_request(
+        "GET", "oka_rides_driver_earnings",
+        params={
+            "select": "*", "earning_date": f"eq.{earning_date}",
+            "order": "created_at.desc", "limit": "2000",
+        },
+        action_description="driver earnings list",
+    )
+    summaries = {}
+    for row in rows:
+        driver_id = str(row.get("driver_id") or "")
+        item = summaries.setdefault(driver_id, {
+            "driverId": driver_id,
+            "driverName": row.get("driver_name") or driver_id,
+            "rideCount": 0, "fareKobo": 0, "earningKobo": 0,
+            "paidOutKobo": 0, "providerSplitKobo": 0,
+            "unpaidKobo": 0, "unpaidCount": 0,
+        })
+        value = int(row.get("driver_earning_kobo") or 0)
+        item["rideCount"] += 1
+        item["fareKobo"] += int(row.get("fare_kobo") or 0)
+        item["earningKobo"] += value
+        status = row.get("status")
+        if status == "PAID_OUT":
+            item["paidOutKobo"] += value
+        elif status == "PROVIDER_SPLIT":
+            item["providerSplitKobo"] += value
+        elif status == "UNPAID":
+            item["unpaidKobo"] += value
+            item["unpaidCount"] += 1
+        else:
+            raise HTTPException(status_code=502, detail="Unexpected driver payout status.")
+    return {"earningDate": earning_date, "earnings": rows, "drivers": list(summaries.values())}
+
+
+@app.post("/api/driver-earnings/payout")
+async def mark_driver_earnings_paid_out(
+    payout: DriverPayoutRequest,
+    dispatcher_id: str = Depends(require_dispatcher_session),
+):
+    try:
+        payout_date = date.fromisoformat(payout.earningDate)
+        if payout_date.isoformat() != payout.earningDate:
+            raise ValueError("Non-canonical date")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Date must use YYYY-MM-DD format.") from exc
+    payout_reference = payout.payoutReference.strip()
+    if not payout_reference:
+        raise HTTPException(status_code=422, detail="Bank transfer reference cannot be blank.")
+    # PostgreSQL locks outstanding entries, verifies the shown count/total and
+    # records the transfer atomically. A stale screen cannot mark extra rides.
+    result = await supabase_request(
+        "POST", "rpc/oka_rides_settle_driver_day",
+        json_body={
+            "p_driver_id": payout.driverId,
+            "p_earning_date": payout_date.isoformat(),
+            "p_reference": payout_reference,
+            "p_expected_count": payout.expectedCount,
+            "p_expected_kobo": payout.expectedAmountKobo,
+            "p_dispatcher_id": dispatcher_id,
+        },
+        action_description="atomic driver daily payout reconciliation",
+    )
+    if not isinstance(result, dict) or result.get("success") is not True:
+        raise HTTPException(status_code=502, detail="Payout confirmation response is invalid.")
+    # The transaction is already committed; failed auxiliary logging must not
+    # make the dispatcher think the payout was not recorded.
+    try:
+        await write_audit_log(
+            "dispatcher", dispatcher_id, "driver.earnings_paid_out", "driver",
+            payout.driverId, {
+                "earning_date": payout.earningDate,
+                "payout_reference": payout_reference,
+                "ride_count": result["rideCount"],
+                "amount_kobo": result["amountKobo"],
+            },
+        )
+    except Exception:
+        pass  # The ledger itself preserves the actor, timestamp and reference.
+    return result
+
+
 @app.get("/api/payment-records")
 async def list_payment_records(_: str = Depends(require_dispatcher_session)):
     rows = await supabase_request("GET", "oka_rides_payment_records",
@@ -2389,6 +2494,16 @@ def paystack_secret_key() -> str:
 
 
 PAYSTACK_PLATFORM_COMMISSION_PERCENT = 15
+
+
+def calculate_driver_earning(amount_kobo: int) -> tuple[int, int]:
+    """Exact 85/15 split in integer kobo, matching the database trigger."""
+    amount = int(amount_kobo)
+    if amount <= 0:
+        raise ValueError("Fare must be positive.")
+    driver_share = (amount * (100 - PAYSTACK_PLATFORM_COMMISSION_PERCENT) + 50) // 100
+    return driver_share, amount - driver_share
+
 
 
 def paystack_split_config(driver: dict) -> dict:
