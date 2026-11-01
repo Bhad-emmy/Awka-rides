@@ -7,6 +7,7 @@ from backend.main_supabase import (
     calculate_driver_earning,
     list_driver_earnings,
     mark_driver_earnings_paid_out,
+    get_driver_daily_earnings,
 )
 
 
@@ -74,6 +75,124 @@ class DriverPayoutLedgerTests(unittest.IsolatedAsyncioTestCase):
             with patch("backend.main_supabase.write_audit_log", new=AsyncMock(side_effect=RuntimeError("logging failed"))):
                 result = await mark_driver_earnings_paid_out(request, dispatcher_id="dispatcher-id")
         self.assertTrue(result["success"])
+
+
+
+class DriverPrivateEarningsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_driver_sees_only_own_daily_earnings(self):
+        driver = {
+            "driver_id": "oka01", "status": "ACTIVE",
+            "verification_status": "VERIFIED",
+        }
+        entries = [
+            {
+                "ride_reference": "R-1", "fare_kobo": 10000,
+                "driver_earning_kobo": 8500, "payment_method": "PAYSTACK",
+                "status": "PROVIDER_SPLIT", "paid_out_at": None,
+                "payout_reference": None,
+            },
+            {
+                "ride_reference": "R-2", "fare_kobo": 20000,
+                "driver_earning_kobo": 17000, "payment_method": "OFFLINE",
+                "status": "UNPAID", "paid_out_at": None,
+                "payout_reference": None,
+            },
+            {
+                "ride_reference": "R-3", "fare_kobo": 30000,
+                "driver_earning_kobo": 25500, "payment_method": "OFFLINE",
+                "status": "PAID_OUT", "paid_out_at": "2026-11-01T12:00:00Z",
+                "payout_reference": "BANK-PAID-1",
+            },
+        ]
+        with (
+            patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value=driver)) as lookup,
+            patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=entries)) as db,
+        ):
+            result = await get_driver_daily_earnings(earning_date="2026-11-01", driver_id="oka01")
+        lookup.assert_awaited_once_with("oka01")
+        args, kwargs = db.await_args
+        self.assertEqual(args, ("GET", "oka_rides_driver_earnings"))
+        self.assertEqual(kwargs["params"]["driver_id"], "eq.oka01")
+        self.assertEqual(kwargs["params"]["earning_date"], "eq.2026-11-01")
+        self.assertNotIn("driver_id", kwargs["params"]["select"])
+        self.assertEqual(result["summary"], {
+            "rideCount": 3,
+            "grossFareKobo": 60000,
+            "driverEarningsKobo": 51000,
+            "outstandingKobo": 17000,
+            "bankPaidKobo": 25500,
+            "paystackAllocatedKobo": 8500,
+        })
+        self.assertEqual(result["rides"][0]["payoutStatus"], "PROVIDER_SPLIT")
+        self.assertIsNone(result["rides"][0]["payoutReference"])
+        self.assertEqual(result["rides"][2]["payoutReference"], "BANK-PAID-1")
+
+    async def test_driver_earnings_empty_day_is_zero(self):
+        driver = {"status": "ACTIVE", "verification_status": "VERIFIED"}
+        with (
+            patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value=driver)),
+            patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=[])),
+        ):
+            result = await get_driver_daily_earnings(earning_date="2026-11-01", driver_id="oka01")
+        self.assertEqual(result["rides"], [])
+        self.assertEqual(result["summary"]["driverEarningsKobo"], 0)
+        self.assertEqual(result["summary"]["rideCount"], 0)
+
+    async def test_unverified_driver_cannot_read_financials(self):
+        driver = {"status": "ACTIVE", "verification_status": "PENDING"}
+        with (
+            patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value=driver)),
+            patch("backend.main_supabase.supabase_request", new=AsyncMock()) as db,
+        ):
+            from fastapi import HTTPException
+            with self.assertRaises(HTTPException) as rejected:
+                await get_driver_daily_earnings(earning_date="2026-11-01", driver_id="oka01")
+            self.assertEqual(rejected.exception.status_code, 403)
+            db.assert_not_awaited()
+
+    async def test_invalid_date_cannot_query_ledger(self):
+        driver = {"status": "ACTIVE", "verification_status": "VERIFIED"}
+        with (
+            patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value=driver)),
+            patch("backend.main_supabase.supabase_request", new=AsyncMock()) as db,
+        ):
+            from fastapi import HTTPException
+            with self.assertRaises(HTTPException) as rejected:
+                await get_driver_daily_earnings(earning_date="2026-02-30", driver_id="oka01")
+            self.assertEqual(rejected.exception.status_code, 422)
+            db.assert_not_awaited()
+
+
+class DriverEarningsHttpAuthorizationTests(unittest.TestCase):
+    def test_no_driver_token_rejected(self):
+        from fastapi.testclient import TestClient
+        from backend.main_supabase import app
+        # The application applies Supabase-backed global rate limiting before
+        # route authentication. Stub only that infrastructure dependency.
+        with patch("backend.main_supabase.enforce_shared_rate_limit", new=AsyncMock()):
+            with TestClient(app) as client:
+                response = client.get("/api/driver/earnings?earning_date=2026-11-01")
+        self.assertEqual(response.status_code, 401, response.text)
+
+    def test_authenticated_driver_cannot_select_another_drivers_earnings(self):
+        from fastapi.testclient import TestClient
+        from backend.main_supabase import app, create_driver_token
+        driver = {"driver_id": "oka01", "status": "ACTIVE", "verification_status": "VERIFIED"}
+        with (
+            patch("backend.main_supabase.enforce_shared_rate_limit", new=AsyncMock()),
+            patch("backend.main_supabase.driver_session_secret", return_value="test-earnings-secret"),
+            patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value=driver)),
+            patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=[])) as db,
+        ):
+            token = create_driver_token("oka01")
+            with TestClient(app) as client:
+                response = client.get(
+                    "/api/driver/earnings?earning_date=2026-11-01&driver_id=oka02",
+                    headers={"Authorization": "Bearer " + token},
+                )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["summary"]["rideCount"], 0)
+        self.assertEqual(db.await_args.kwargs["params"]["driver_id"], "eq.oka01")
 
 
 if __name__ == "__main__":

@@ -1488,6 +1488,78 @@ async def list_driver_earnings(
     return {"earningDate": earning_date, "earnings": rows, "drivers": list(summaries.values())}
 
 
+@app.get("/api/driver/earnings")
+async def get_driver_daily_earnings(
+    earning_date: str = Query(default=""),
+    driver_id: str = Depends(require_driver_token),
+):
+    """Read-only, driver-scoped earnings for a Nigeria business date.
+
+    Never accept a caller-selected driver ID: it comes only from the signed
+    driver bearer token. No dispatcher payout action is exposed here.
+    """
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=403, detail="Driver account is not active and verified.")
+
+    if earning_date:
+        try:
+            parsed = date.fromisoformat(earning_date)
+            if parsed.isoformat() != earning_date:
+                raise ValueError("Non-canonical date")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Date must use YYYY-MM-DD format.") from exc
+    else:
+        earning_date = datetime.now(ZoneInfo("Africa/Lagos")).date().isoformat()
+
+    rows = await supabase_request(
+        "GET", "oka_rides_driver_earnings",
+        params={
+            "select": "ride_reference,fare_kobo,driver_earning_kobo,payment_method,status,payout_reference,paid_out_at",
+            "driver_id": f"eq.{driver_id}",
+            "earning_date": f"eq.{earning_date}",
+            "order": "created_at.desc",
+            "limit": "500",
+        },
+        action_description="driver's own daily earnings",
+    )
+
+    summary = {
+        "rideCount": 0,
+        "grossFareKobo": 0,
+        "driverEarningsKobo": 0,
+        "outstandingKobo": 0,
+        "bankPaidKobo": 0,
+        "paystackAllocatedKobo": 0,
+    }
+    rides = []
+    for row in rows:
+        share = int(row.get("driver_earning_kobo") or 0)
+        fare = int(row.get("fare_kobo") or 0)
+        status = row.get("status")
+        if status not in {"UNPAID", "PAID_OUT", "PROVIDER_SPLIT"}:
+            raise HTTPException(status_code=502, detail="Unexpected driver payout status.")
+        summary["rideCount"] += 1
+        summary["grossFareKobo"] += fare
+        summary["driverEarningsKobo"] += share
+        if status == "UNPAID":
+            summary["outstandingKobo"] += share
+        elif status == "PAID_OUT":
+            summary["bankPaidKobo"] += share
+        else:
+            summary["paystackAllocatedKobo"] += share
+        rides.append({
+            "rideReference": row.get("ride_reference"),
+            "fareKobo": fare,
+            "driverEarningKobo": share,
+            "paymentMethod": row.get("payment_method"),
+            "payoutStatus": status,
+            "payoutReference": row.get("payout_reference") if status == "PAID_OUT" else None,
+            "paidOutAt": row.get("paid_out_at") if status == "PAID_OUT" else None,
+        })
+    return {"earningDate": earning_date, "summary": summary, "rides": rides}
+
+
 @app.post("/api/driver-earnings/payout")
 async def mark_driver_earnings_paid_out(
     payout: DriverPayoutRequest,
