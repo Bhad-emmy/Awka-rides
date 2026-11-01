@@ -228,6 +228,30 @@ the ledger table or trigger while live rides may complete; retain its data for
 audit and review before any schema rollback. No live money is transferred by
 this feature.
 
+### Driver earnings visibility (read-only)
+
+Drivers can now open their existing `/driver.html` portal and see **Daily
+earnings** without leaving the ride screen. They can select a Nigeria
+business date to review paid-and-completed rides, their 85% share, outstanding
+bank payouts, previously recorded bank transfers and Paystack allocations.
+
+- `GET /api/driver/earnings?earning_date=YYYY-MM-DD` requires the driver's
+  existing signed bearer token and derives the driver ID server-side. It
+  queries only that driver's ledger entries and returns no other driver's
+  earnings, no dispatcher information and no direct database credentials.
+  An inactive or unverified account cannot view earnings.
+- The driver cannot mark payouts paid. Only an authenticated dispatcher can
+  use `/driver-earnings.html` and the existing protected reconciliation API.
+  The dispatcher can select a business date and see **all** drivers and the
+  amount actually outstanding for bank payment.
+- Totals exclude uncompleted or unpaid rides and distinguish `UNPAID`,
+  `PAID_OUT` and `PROVIDER_SPLIT` to prevent counting Paystack splits as
+  manual bank amounts owed. Paystack allocation still requires settlement
+  reconciliation with Paystack.
+- The driver screen refreshes when signed in, after a ride is completed,
+  manually, and periodically while active. The API is read-only and needs
+  no additional database migration.
+
 ## Payment status and production readiness
 
 Paystack hosted checkout is implemented in the customer ride flow. When a ride has an assigned driver, a confirmed fare, and an outstanding payment, the customer interface displays **Pay securely with Paystack**. The FastAPI backend initializes checkout, verifies transactions server-side, and handles signed Paystack webhooks. Offline payments can also be recorded by the dispatcher.
