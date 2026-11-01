@@ -169,7 +169,7 @@ class DriverEarningsHttpAuthorizationTests(unittest.TestCase):
         from backend.main_supabase import app
         with TestClient(app) as client:
             response = client.get("/api/driver/earnings?earning_date=2026-11-01")
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 401, response.text)
 
 
 if __name__ == "__main__":
