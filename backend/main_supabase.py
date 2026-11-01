@@ -242,6 +242,12 @@ class DriverPaystackConnect(DriverBankLookup):
     confirmedOwnerConsent: bool
 
 
+class DriverManualBankProfile(DriverBankLookup):
+    bankName: str = Field(min_length=2, max_length=120)
+    confirmedAccountName: str = Field(min_length=3, max_length=180)
+    confirmedOwnerConsent: bool
+
+
 class DriverPaystackLink(BaseModel):
     subaccountCode: str = Field(pattern=r"^ACCT_[A-Za-z0-9]+$")
     confirmedOwnerConsent: bool
@@ -1685,6 +1691,10 @@ async def list_drivers(_: str = Depends(require_dispatcher_session)):
                 "lastLocationAt": row.get("last_location_at"),
                 "eligible": eligible,
                 "paystackSubaccountLinked": bool(str(row.get("paystack_subaccount_code") or "").strip()),
+                "payoutBankVerified": bool(row.get("payout_bank_verified_at")),
+                "payoutBankName": row.get("payout_bank_name"),
+                "payoutAccountName": row.get("payout_account_name"),
+                "payoutAccountLast4": str(row.get("payout_account_number") or "")[-4:],
             }
         )
 
@@ -3001,6 +3011,67 @@ async def require_driver_without_subaccount(driver_id: str) -> dict:
     if str(driver.get("paystack_subaccount_code") or "").strip():
         raise HTTPException(status_code=409, detail="A Paystack subaccount is already linked to this driver.")
     return driver
+
+
+@app.post("/api/drivers/{driver_id}/payout-bank")
+async def save_driver_manual_payout_bank(
+    data: DriverManualBankProfile,
+    driver_id: str = Path(min_length=1),
+    dispatcher_id: str = Depends(require_dispatcher_session),
+):
+    """Resolve account with Paystack and store for manual bank transfers only."""
+    if not data.confirmedOwnerConsent:
+        raise HTTPException(status_code=422, detail="Confirm receiving bank ownership and driver consent.")
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
+        raise HTTPException(status_code=409, detail="Verify and activate the driver first.")
+    await enforce_shared_rate_limit("oka-bank-profile:" + driver_id, 8, 3600,
+                                    "Too many payout bank updates. Contact dispatch.")
+    verified = await resolve_driver_bank_account(data.bankCode, data.accountNumber)
+    confirmed = " ".join(str(verified["account_name"]).casefold().split())
+    submitted = " ".join(data.confirmedAccountName.casefold().split())
+    if confirmed != submitted:
+        raise HTTPException(status_code=409, detail="The verified bank account name has changed. Resolve it again.")
+    rows = await supabase_request(
+        "PATCH", SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}", "status": "eq.ACTIVE",
+                "verification_status": "eq.VERIFIED"},
+        json_body={
+            "payout_bank_code": data.bankCode,
+            "payout_bank_name": data.bankName.strip(),
+            "payout_account_number": data.accountNumber,
+            "payout_account_name": str(verified["account_name"]).strip(),
+            "payout_bank_verified_at": datetime.now(timezone.utc).isoformat(),
+        },
+        action_description="manual driver payout bank verification",
+    )
+    if not rows:
+        raise HTTPException(status_code=409, detail="Driver record changed during bank verification.")
+    try:
+        await write_audit_log("dispatcher", dispatcher_id, "driver.payout_bank_updated", "driver",
+                              driver_id, {"bank_code": data.bankCode, "account_last4": data.accountNumber[-4:]})
+    except HTTPException:
+        pass
+    return {"saved": True, "driverId": driver_id, "bankName": data.bankName.strip(),
+            "accountName": str(verified["account_name"]).strip(),
+            "maskedAccount": "****" + data.accountNumber[-4:]}
+
+
+@app.get("/api/drivers/{driver_id}/payout-bank")
+async def get_driver_manual_payout_bank(
+    driver_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    """Only an authenticated dispatcher may retrieve the full bank details."""
+    driver = await get_driver_record(driver_id)
+    if not driver.get("payout_bank_verified_at"):
+        raise HTTPException(status_code=404, detail="This driver has no verified payout bank saved.")
+    return {"driverId": driver_id,
+            "bankName": driver.get("payout_bank_name"),
+            "bankCode": driver.get("payout_bank_code"),
+            "accountName": driver.get("payout_account_name"),
+            "accountNumber": driver.get("payout_account_number"),
+            "verifiedAt": driver.get("payout_bank_verified_at")}
 
 
 @app.post("/api/drivers/{driver_id}/paystack/bank-lookup")
