@@ -300,14 +300,14 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         phone: $("#new-driver-phone").value.trim(),
         vehicle: $("#new-driver-vehicle").value.trim(),
         plateNumber: $("#new-driver-plate").value.trim().toUpperCase(),
-        pin: $("#new-driver-pin").value,
+        pin: $("#new-driver-pin").value || null,
         status: "ACTIVE",
         verificationStatus: "VERIFIED",
         notes: "Registered by dispatcher after identity and vehicle checks."
     };
 
-    if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || payload.pin.length < 4) {
-        setFeedback("Complete all driver fields. PIN must be at least 4 characters.");
+    if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || (payload.pin && payload.pin.length < 4)) {
+        setFeedback("Complete all driver fields. A blank PIN will use the last four digits of the phone number.");
         return;
     }
 
