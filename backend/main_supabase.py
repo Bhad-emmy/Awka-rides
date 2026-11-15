@@ -2013,7 +2013,10 @@ async def driver_login(login: DriverLogin):
     stage = "rate_limit"
     try:
         phone_key = hashlib.sha256(login.phone.strip().encode("utf-8")).hexdigest()
-        await enforce_shared_rate_limit(
+        # Keep driver-specific throttling local to this function. The shared
+        # PostgREST RPC intermittently returns 404/42883 for this key path in
+        # production; the global API middleware still applies its shared limit.
+        enforce_rate_limit(
             "driver-login:" + phone_key,
             AUTH_RATE_LIMIT_MAX,
             AUTH_RATE_LIMIT_WINDOW,
