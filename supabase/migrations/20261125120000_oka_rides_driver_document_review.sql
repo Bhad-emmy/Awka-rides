@@ -1,6 +1,9 @@
 -- Oka Rides only: private driver document storage and dispatcher review.
--- This migration intentionally puts every existing non-suspended driver back
--- into a pending/offline state until their documents have been reviewed.
+-- Existing driver status and availability are preserved. Only newly registered
+-- drivers are gated by document_review_required.
+
+alter table public.oka_rides_drivers
+  add column if not exists document_review_required boolean not null default false;
 
 create table if not exists public.oka_rides_driver_documents (
   id uuid primary key default gen_random_uuid(),
@@ -32,10 +35,3 @@ on conflict (id) do update
 set public = false, file_size_limit = 5242880,
     allowed_mime_types = excluded.allowed_mime_types;
 
-update public.oka_rides_drivers
-set status = case when status = 'SUSPENDED' then 'SUSPENDED' else 'INACTIVE' end,
-    verification_status = 'PENDING',
-    availability_status = 'OFFLINE'
-where status <> 'SUSPENDED'
-   or verification_status <> 'PENDING'
-   or availability_status <> 'OFFLINE';
