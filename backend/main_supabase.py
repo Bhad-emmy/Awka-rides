@@ -2855,7 +2855,7 @@ async def paystack_api(method: str, path: str, payload: dict | None = None) -> d
     return result.get("data") or {}
 
 
-def paystack_expected_amount_kobodef paystack_expected_amount_kobo(ride: dict) -> int:
+def paystack_expected_amount_kobo(ride: dict) -> int:
     try:
         return naira_to_kobo(ride.get("fare"))
     except ValueError as exc:
