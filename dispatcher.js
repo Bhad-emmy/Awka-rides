@@ -357,9 +357,7 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         vehicle: $("#new-driver-vehicle").value.trim(),
         plateNumber: $("#new-driver-plate").value.trim().toUpperCase(),
         pin: $("#new-driver-pin").value || null,
-        status: "ACTIVE",
-        verificationStatus: "VERIFIED",
-        notes: "Registered by dispatcher after identity and vehicle checks."
+        notes: "Registered by dispatcher; pending driver document review."
     };
 
     if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || !payload.pin || payload.pin.length < 4) {
