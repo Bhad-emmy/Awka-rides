@@ -58,6 +58,15 @@
                 <div class="action-row"><button class="button primary" id="create-driver-button" type="submit">Register driver</button><button class="button light" id="regenerate-driver-id" type="button">Generate new ID</button></div>
             </form>
         </section>
+        <section class="panel details" id="driver-pin-manager" aria-labelledby="driver-pin-manager-title" style="margin-bottom:18px">
+            <div class="details-top">
+                <div><h2 id="driver-pin-manager-title">Manage driver login PINs</h2>
+                    <p>Reset a driver's login PIN at any time. This list is independent of ride dispatch; no active ride is required.</p></div>
+                <button class="button light" id="refresh-driver-pin-list" type="button">Refresh drivers</button>
+            </div>
+            <p class="muted" id="driver-pin-manager-feedback" role="status" aria-live="polite">Loading registered drivers…</p>
+            <div id="driver-pin-manager-list" aria-live="polite"></div>
+        </section>
         <section class="panel details" id="driver-paystack-setup" aria-labelledby="driver-paystack-title" style="margin-bottom:18px">
             <div class="details-top"><div><h2 id="driver-paystack-title">Driver bank details for daily payouts</h2>
                 <p>Oka Rides collects the full fare through Paystack. At the end of the day, we calculate each driver's 85%, and dispatch pays it by bank transfer after confirming the funds are available.</p></div>
