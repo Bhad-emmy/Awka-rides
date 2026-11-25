@@ -164,7 +164,7 @@ $("driver-document-form")?.addEventListener("submit",async event=>{
       contentBase64:btoa(binary),expiresAt:expiry||null
     })});
     $("driver-document-file").value="";
-    messageNode.textContent="Uploaded. Your account is offline until dispatch reviews the documents.";
+    messageNode.textContent="Uploaded. Dispatch will review this document; your current driver status and availability are unchanged.";
     await loadDriverDocuments();
     await poll();
   }catch(err){messageNode.textContent=err.message}
