@@ -3102,7 +3102,7 @@ def safe_paystack_mode() -> str:
 
 @app.get("/api/payments/paystack/readiness")
 async def paystack_admin_readiness(_: str = Depends(require_dispatcher_session)):
-    """API connectivity check; does not prove split settlement or bank credit."""
+    """API connectivity check; does not prove platform settlement or driver bank credit."""
     mode = safe_paystack_mode()
     if mode == "not-configured":
         return {"configured": False, "apiConnected": False, "mode": mode,
