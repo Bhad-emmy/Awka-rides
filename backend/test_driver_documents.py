@@ -35,7 +35,7 @@ class DriverDocumentVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["availability_status"], "OFFLINE")
 
     async def test_generic_driver_update_cannot_set_verified(self):
-        update = DriverUpdate.model_validate({"verificationStatus": "VERIFIED"})
+        update = DriverUpdate(verificationStatus="VERIFIED")
         self.assertIsNone(getattr(update, "verificationStatus", None))
         self.assertIsNone(update.status)
 
