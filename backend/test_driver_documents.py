@@ -74,7 +74,7 @@ class DriverDocumentVerificationTests(unittest.IsolatedAsyncioTestCase):
         driver = {
             "driver_id": "oka-incoming",
             "status": "INACTIVE",
-            "verification_status": "PENDING",
+            "verification_status": "VERIFIED",
             "availability_status": "OFFLINE",
             "document_review_required": True,
         }
