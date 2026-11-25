@@ -6,10 +6,12 @@ from fastapi import HTTPException
 from backend.main_supabase import (
     DriverCreate,
     DriverUpdate,
+    DriverDocumentReview,
     create_driver,
     driver_documents_complete,
     ensure_driver_operational,
     driver_session,
+    review_driver_document,
 )
 
 
@@ -99,6 +101,31 @@ class DriverDocumentVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["driver"]["availabilityStatus"], "BUSY")
         self.assertTrue(result["driver"]["documentsComplete"])
         self.assertFalse(result["driver"]["documentReviewRequired"])
+
+    async def test_reviewing_legacy_documents_never_changes_driver_state(self):
+        legacy = {
+            "driver_id": "oka-existing",
+            "status": "ACTIVE",
+            "verification_status": "VERIFIED",
+            "availability_status": "BUSY",
+            "document_review_required": False,
+        }
+        with (
+            patch("backend.main_supabase.get_driver_record", new=AsyncMock(side_effect=[legacy, legacy])),
+            patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=[{"document_type": "DRIVER_LICENSE"}])) as database,
+            patch("backend.main_supabase.driver_documents_complete", new=AsyncMock(return_value=(False, {"missingOrUnapproved": ["INSURANCE"]}))),
+            patch("backend.main_supabase.write_audit_log", new=AsyncMock()),
+        ):
+            result = await review_driver_document(
+                DriverDocumentReview(status="REJECTED", note="Legacy review test"),
+                "oka-existing",
+                "document-test-id",
+                "dispatcher-test",
+            )
+        self.assertEqual(result["verificationStatus"], "VERIFIED")
+        self.assertEqual(result["missingOrUnapproved"], ["INSURANCE"])
+        database.assert_awaited_once()
+        self.assertEqual(database.await_args.kwargs["json_body"]["status"], "REJECTED")
 
 
 if __name__ == "__main__":
