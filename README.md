@@ -228,8 +228,9 @@ initiates a bank transfer automatically.
 **Financial controls:** Outstanding earnings represent obligations, not
 settled platform cash. Never pay from the same ride twice. If a customer
 receives a refund/chargeback, investigate before payout and reconcile
-affected earnings. Existing Paystack subaccounts and the old onboarding
-code are legacy only and are not required for new checkout.
+affected earnings. Existing Paystack subaccount records and the nullable database column are
+retained only for historical reconciliation; the application no longer exposes
+subaccount creation, linking or split-settlement functionality.
 
 ## Driver daily earnings and payout reconciliation
 
