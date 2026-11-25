@@ -30,6 +30,8 @@ SUPABASE_TABLE_CUSTOMER_SESSIONS = "oka_rides_customer_sessions"
 SUPABASE_TABLE_DRIVER_DOCUMENTS = "oka_rides_driver_documents"
 DRIVER_DOCUMENT_BUCKET = "oka-rides-driver-documents"
 DRIVER_DOCUMENT_TYPES = {"DRIVER_LICENSE", "VEHICLE_REGISTRATION", "ROADWORTHINESS", "INSURANCE"}
+# Temporary product decision: document collection/review remains available, but it must not gate any driver workflow.
+DRIVER_DOCUMENT_ENFORCEMENT_ENABLED = False
 
 app = FastAPI(title="Awka Rides API")
 
@@ -600,10 +602,7 @@ async def ensure_driver_operational(driver_id: str) -> dict:
     driver = await get_driver_record(driver_id)
     if driver.get("status") != "ACTIVE" or driver.get("verification_status") != "VERIFIED":
         raise HTTPException(status_code=403, detail="Driver account is not active and verified.")
-    # Existing drivers are grandfathered: this feature must not change their
-    # status or interrupt dispatch. Document enforcement applies to new drivers
-    # explicitly marked document_review_required by the registration flow.
-    if driver.get("document_review_required", False):
+    if DRIVER_DOCUMENT_ENFORCEMENT_ENABLED and driver.get("document_review_required", False):
         complete, detail = await driver_documents_complete(driver_id)
         if not complete:
             raise HTTPException(status_code=403, detail={"message": "Driver documents are incomplete, expired, or awaiting review.", **detail})
@@ -1827,7 +1826,7 @@ async def upload_driver_document(
             pass
         raise
     # Uploading documents must never deactivate or force an existing driver
-    # offline. New drivers are already gated by document_review_required.
+    # offline. Document verification is currently disabled for all drivers.
     return {"uploaded": True, "documentId": rows[0].get("id"), "status": "PENDING"}
 
 
@@ -1882,20 +1881,17 @@ async def review_driver_document(
        action_description="driver document review")
     if not rows:
         raise HTTPException(status_code=404, detail="Pending driver document not found.")
-    complete, detail = await driver_documents_complete(driver_id)
-    verification = "VERIFIED" if complete else ("REJECTED" if data.status == "REJECTED" else "PENDING")
-    # Existing drivers are grandfathered. Reviewing their documents must not
-    # change ACTIVE/VERIFIED or availability; the new requirement applies only
-    # to drivers registered with document_review_required=true.
     current_driver = await get_driver_record(driver_id)
-    if current_driver.get("document_review_required", False):
+    detail = {"missingOrUnapproved": []}
+    if DRIVER_DOCUMENT_ENFORCEMENT_ENABLED and current_driver.get("document_review_required", False):
+        complete, detail = await driver_documents_complete(driver_id)
+        verification = "VERIFIED" if complete else ("REJECTED" if data.status == "REJECTED" else "PENDING")
         await supabase_request("PATCH", SUPABASE_TABLE_DRIVERS, params={"driver_id": f"eq.{driver_id}"},
             json_body={"verification_status": verification},
             action_description="driver verification state update")
     await write_audit_log("dispatcher", dispatcher_id, "driver.document_reviewed", "driver", driver_id,
         {"document_type": rows[0].get("document_type"), "decision": data.status})
-    response_verification = verification if current_driver.get("document_review_required", False) else current_driver.get("verification_status", verification)
-    return {"reviewed": True, "verificationStatus": response_verification, **detail}
+    return {"reviewed": True, "verificationStatus": current_driver.get("verification_status", "PENDING"), **detail}
 
 
 @app.post("/api/drivers", status_code=201)
@@ -1903,7 +1899,7 @@ async def create_driver(
     driver: DriverCreate,
     _: str = Depends(require_dispatcher_session),
 ):
-    # New drivers remain inactive until required documents are approved.
+    # Document review is temporarily disabled; new drivers are registered active and verified.
     normalized_phone = driver.phone.strip()
     existing_phone_rows = await supabase_request(
         "GET",
@@ -1924,10 +1920,10 @@ async def create_driver(
         "phone": normalized_phone,
         "vehicle": driver.vehicle,
         "plate_number": driver.plateNumber,
-        "status": "INACTIVE",
-        "verification_status": "PENDING",
+        "status": "INACTIVE" if DRIVER_DOCUMENT_ENFORCEMENT_ENABLED else "ACTIVE",
+        "verification_status": "PENDING" if DRIVER_DOCUMENT_ENFORCEMENT_ENABLED else "VERIFIED",
         "availability_status": "OFFLINE",
-        "document_review_required": True,
+        "document_review_required": DRIVER_DOCUMENT_ENFORCEMENT_ENABLED,
         "completed_rides": driver.completedRides,
         "cancelled_rides": driver.cancelledRides,
         "notes": driver.notes,
@@ -2001,14 +1997,14 @@ async def update_driver(
     existing_driver = await get_driver_record(driver_id)
     effective_status = driver.status if driver.status is not None else existing_driver.get("status")
     effective_verification = existing_driver.get("verification_status")
-    if existing_driver.get("document_review_required", False) and driver.status == "ACTIVE":
+    if DRIVER_DOCUMENT_ENFORCEMENT_ENABLED and existing_driver.get("document_review_required", False) and driver.status == "ACTIVE":
         complete, detail = await driver_documents_complete(driver_id)
         if effective_verification != "VERIFIED" or not complete:
             raise HTTPException(status_code=409, detail={"message": "Approve all current driver documents before activation.", **detail})
     if driver.availabilityStatus == "ONLINE":
         if effective_status != "ACTIVE" or effective_verification != "VERIFIED":
             raise HTTPException(status_code=409, detail="Only active, verified drivers can go ONLINE.")
-        if existing_driver.get("document_review_required", False):
+        if DRIVER_DOCUMENT_ENFORCEMENT_ENABLED and existing_driver.get("document_review_required", False):
             complete, detail = await driver_documents_complete(driver_id)
             if not complete:
                 raise HTTPException(status_code=409, detail={"message": "Approve all current driver documents before setting ONLINE.", **detail})
@@ -2055,7 +2051,7 @@ async def auto_dispatch_ride(ride: dict) -> dict:
             or row.get("availability_status", "OFFLINE") != "ONLINE"
         ):
             continue
-        if row.get("document_review_required", False):
+        if DRIVER_DOCUMENT_ENFORCEMENT_ENABLED and row.get("document_review_required", False):
             documents_ok, _ = await driver_documents_complete(str(row.get("driver_id") or ""))
             if not documents_ok:
                 continue
@@ -2255,12 +2251,10 @@ async def driver_login(login: DriverLogin):
 @app.get("/api/driver/auth/session")
 async def driver_session(driver_id: str = Depends(require_driver_token)):
     driver = await get_driver_record(driver_id)
-    document_review_required = bool(driver.get("document_review_required", False))
+    document_review_required = DRIVER_DOCUMENT_ENFORCEMENT_ENABLED and bool(driver.get("document_review_required", False))
     if document_review_required:
         documents_complete, document_detail = await driver_documents_complete(driver_id)
     else:
-        # Legacy drivers must remain usable without requiring the new documents
-        # table to exist or contain records for them.
         documents_complete, document_detail = True, {"missingOrUnapproved": []}
     return {
         "authenticated": True,
@@ -2578,7 +2572,7 @@ async def dispatch_options(
     candidates = []
     for row in rows:
         documents_ok = True
-        if row.get("document_review_required", False):
+        if DRIVER_DOCUMENT_ENFORCEMENT_ENABLED and row.get("document_review_required", False):
             documents_ok, _ = await driver_documents_complete(str(row.get("driver_id") or ""))
         active_verified = (
             row.get("status") == "ACTIVE"
