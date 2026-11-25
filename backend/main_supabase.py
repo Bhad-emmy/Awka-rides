@@ -2255,8 +2255,13 @@ async def driver_login(login: DriverLogin):
 @app.get("/api/driver/auth/session")
 async def driver_session(driver_id: str = Depends(require_driver_token)):
     driver = await get_driver_record(driver_id)
-    documents_complete, document_detail = await driver_documents_complete(driver_id)
     document_review_required = bool(driver.get("document_review_required", False))
+    if document_review_required:
+        documents_complete, document_detail = await driver_documents_complete(driver_id)
+    else:
+        # Legacy drivers must remain usable without requiring the new documents
+        # table to exist or contain records for them.
+        documents_complete, document_detail = True, {"missingOrUnapproved": []}
     return {
         "authenticated": True,
         "driver": {
