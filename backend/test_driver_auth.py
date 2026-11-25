@@ -3,6 +3,8 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
+from starlette.requests import Request
+from starlette.responses import Response
 from pydantic import ValidationError
 
 from backend.main_supabase import (
@@ -12,6 +14,7 @@ from backend.main_supabase import (
     DriverLogin,
     driver_login,
     find_driver_by_phone,
+    csrf_protection_middleware,
 )
 
 
@@ -95,6 +98,48 @@ class DriverPhoneLoginTests(unittest.IsolatedAsyncioTestCase):
                 vehicle="Keke",
                 plateNumber="ABC123XY",
             )
+
+
+class DriverCsrfMiddlewareTests(unittest.IsolatedAsyncioTestCase):
+    def make_request(self, headers, cookies=b""):
+        scope = {
+            "type": "http", "http_version": "1.1", "method": "PATCH",
+            "scheme": "https", "path": "/api/driver/availability",
+            "raw_path": b"/api/driver/availability", "query_string": b"",
+            "root_path": "", "headers": headers,
+            "client": ("127.0.0.1", 12345), "server": ("example.test", 443),
+        }
+        if cookies:
+            scope["headers"].append((b"cookie", cookies))
+        return Request(scope)
+
+    async def test_driver_bearer_request_is_not_blocked_by_stale_customer_cookie(self):
+        request = self.make_request([
+            (b"origin", b"https://www.okarides.com.ng"),
+            (b"authorization", b"Bearer valid-driver-token"),
+        ], b"oka_customer_session=stale-customer-session")
+
+        async def call_next(_request):
+            return Response("driver auth dependency will validate bearer token")
+
+        with patch("backend.main_supabase.request_origin_is_allowed", return_value=True):
+            response = await csrf_protection_middleware(request, call_next)
+
+        self.assertEqual(response.status_code, 200)
+
+    async def test_driver_mutation_without_bearer_keeps_csrf_protection(self):
+        request = self.make_request([
+            (b"origin", b"https://www.okarides.com.ng"),
+        ], b"oka_customer_session=stale-customer-session")
+
+        async def call_next(_request):
+            return Response("should not reach route")
+
+        with patch("backend.main_supabase.request_origin_is_allowed", return_value=True):
+            response = await csrf_protection_middleware(request, call_next)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("CSRF token required", response.body.decode())
 
 
 if __name__ == "__main__":
