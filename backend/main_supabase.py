@@ -1826,7 +1826,7 @@ async def upload_driver_document(
             pass
         raise
     # Uploading documents must never deactivate or force an existing driver
-    # offline. New drivers are already gated by document_review_required.
+    # offline. Document verification is currently disabled for all drivers.
     return {"uploaded": True, "documentId": rows[0].get("id"), "status": "PENDING"}
 
 
