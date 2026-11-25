@@ -33,6 +33,7 @@ class DriverDocumentVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["status"], "INACTIVE")
         self.assertEqual(payload["verification_status"], "PENDING")
         self.assertEqual(payload["availability_status"], "OFFLINE")
+        self.assertTrue(payload["document_review_required"])
 
     async def test_generic_driver_update_cannot_set_verified(self):
         update = DriverUpdate(verificationStatus="VERIFIED")
@@ -54,7 +55,8 @@ class DriverDocumentVerificationTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_document_blocks_driver_operations(self):
         with (
             patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value={
-                "driver_id": "oka-test", "status": "ACTIVE", "verification_status": "VERIFIED"
+                "driver_id": "oka-test", "status": "ACTIVE", "verification_status": "VERIFIED",
+                "document_review_required": True
             })),
             patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=[])),
         ):
@@ -62,6 +64,19 @@ class DriverDocumentVerificationTests(unittest.IsolatedAsyncioTestCase):
                 await ensure_driver_operational("oka-test")
         self.assertEqual(caught.exception.status_code, 403)
         self.assertIn("DRIVER_LICENSE", caught.exception.detail["missingOrUnapproved"])
+
+    async def test_existing_active_driver_is_grandfathered_without_document_upload(self):
+        driver = {
+            "driver_id": "oka-existing",
+            "status": "ACTIVE",
+            "verification_status": "VERIFIED",
+            "availability_status": "ONLINE",
+            "document_review_required": False,
+        }
+        with patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value=driver)):
+            result = await ensure_driver_operational("oka-existing")
+        self.assertEqual(result["status"], "ACTIVE")
+        self.assertEqual(result["availability_status"], "ONLINE")
 
 
 if __name__ == "__main__":
