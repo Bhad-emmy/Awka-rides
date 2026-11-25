@@ -112,3 +112,61 @@ $("earnings-date").addEventListener("change",loadDriverEarnings);
 $("earnings-refresh").addEventListener("click",loadDriverEarnings);
 setInterval(loadDriverEarnings,60000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadDriverEarnings()});
+
+
+async function loadDriverDocuments(){
+  if(!token)return;
+  const list=$("driver-document-list");
+  if(!list)return;
+  try{
+    const data=await api("/driver/documents");
+    list.replaceChildren();
+    for(const doc of data.documents||[]){
+      const item=document.createElement("div");
+      item.className="earnings-ride";
+      const title=document.createElement("strong");
+      title.textContent=(doc.documentType||doc.document_type||"Document").replaceAll("_"," ");
+      const detail=document.createElement("small");
+      detail.textContent=(doc.status||"PENDING")+" · "+(doc.fileName||doc.file_name||"")+
+        (doc.expiresAt||doc.expires_at?" · Expires "+(doc.expiresAt||doc.expires_at):"");
+      item.append(title,detail);
+      if(doc.review_note||doc.reviewNote){
+        const note=document.createElement("small");note.textContent="Review note: "+(doc.review_note||doc.reviewNote);item.append(note);
+      }
+      list.append(item);
+    }
+    if(!list.children.length)list.textContent="No documents uploaded yet.";
+  }catch(err){list.textContent="Unable to load documents: "+err.message}
+}
+
+$("driver-document-form")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const button=$("driver-document-submit");
+  const file=$("driver-document-file").files?.[0];
+  const type=$("driver-document-type").value;
+  const expiry=$("driver-document-expiry").value;
+  const messageNode=$("driver-document-message");
+  if(!file){messageNode.textContent="Choose a document file.";return}
+  if(file.size>5*1024*1024){messageNode.textContent="File exceeds the 5 MB limit.";return}
+  if(!["application/pdf","image/jpeg","image/png"].includes(file.type)){messageNode.textContent="Only PDF, JPG and PNG files are accepted.";return}
+  if(["DRIVER_LICENSE","ROADWORTHINESS","INSURANCE"].includes(type)&&!expiry){
+    messageNode.textContent="Enter the document expiry date.";return;
+  }
+  button.disabled=true;messageNode.textContent="Uploading securely…";
+  try{
+    const bytes=new Uint8Array(await file.arrayBuffer());
+    let binary="";
+    for(let offset=0;offset<bytes.length;offset+=0x8000){
+      binary+=String.fromCharCode(...bytes.subarray(offset,offset+0x8000));
+    }
+    await api("/driver/documents",{method:"POST",body:JSON.stringify({
+      documentType:type,fileName:file.name,mimeType:file.type,
+      contentBase64:btoa(binary),expiresAt:expiry||null
+    })});
+    $("driver-document-file").value="";
+    messageNode.textContent="Uploaded. Your account is offline until dispatch reviews the documents.";
+    await loadDriverDocuments();
+    await poll();
+  }catch(err){messageNode.textContent=err.message}
+  finally{button.disabled=false}
+});
