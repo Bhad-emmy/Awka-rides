@@ -1894,7 +1894,8 @@ async def review_driver_document(
             action_description="driver verification state update")
     await write_audit_log("dispatcher", dispatcher_id, "driver.document_reviewed", "driver", driver_id,
         {"document_type": rows[0].get("document_type"), "decision": data.status})
-    return {"reviewed": True, "verificationStatus": verification, **detail}
+    response_verification = verification if current_driver.get("document_review_required", False) else current_driver.get("verification_status", verification)
+    return {"reviewed": True, "verificationStatus": response_verification, **detail}
 
 
 @app.post("/api/drivers", status_code=201)
