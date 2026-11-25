@@ -357,7 +357,7 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         vehicle: $("#new-driver-vehicle").value.trim(),
         plateNumber: $("#new-driver-plate").value.trim().toUpperCase(),
         pin: $("#new-driver-pin").value || null,
-        notes: "Registered by dispatcher; pending driver document review."
+        notes: "Registered by dispatcher."
     };
 
     if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || !payload.pin || payload.pin.length < 4) {
@@ -1007,7 +1007,6 @@ async function initialize() {
             await refreshGeneratedDriverId();
             await initializePaystackSetup();
             await loadDriverPinManager();
-            await loadDriverDocumentReviewDrivers();
             await loadRides();
             await checkForNewRideRequests();
             startRideAlerts();
