@@ -1884,11 +1884,14 @@ async def review_driver_document(
         raise HTTPException(status_code=404, detail="Pending driver document not found.")
     complete, detail = await driver_documents_complete(driver_id)
     verification = "VERIFIED" if complete else ("REJECTED" if data.status == "REJECTED" else "PENDING")
-    # Preserve the driver's existing ACTIVE/INACTIVE and ONLINE/OFFLINE state.
-    # Document approval updates verification only; activation remains explicit.
-    await supabase_request("PATCH", SUPABASE_TABLE_DRIVERS, params={"driver_id": f"eq.{driver_id}"},
-        json_body={"verification_status": verification},
-        action_description="driver verification state update")
+    # Existing drivers are grandfathered. Reviewing their documents must not
+    # change ACTIVE/VERIFIED or availability; the new requirement applies only
+    # to drivers registered with document_review_required=true.
+    current_driver = await get_driver_record(driver_id)
+    if current_driver.get("document_review_required", False):
+        await supabase_request("PATCH", SUPABASE_TABLE_DRIVERS, params={"driver_id": f"eq.{driver_id}"},
+            json_body={"verification_status": verification},
+            action_description="driver verification state update")
     await write_audit_log("dispatcher", dispatcher_id, "driver.document_reviewed", "driver", driver_id,
         {"document_type": rows[0].get("document_type"), "decision": data.status})
     return {"reviewed": True, "verificationStatus": verification, **detail}
