@@ -516,6 +516,10 @@ async function loadDrivers() {
                     </select>
                     <button class="button light driver-availability-button" type="button" data-driver-id="${html(driver.driverId)}">Save</button>
                 </div>
+                <div class="driver-control">
+                    <input class="driver-pin-reset" data-driver-id="${html(driver.driverId)}" type="password" minlength="4" maxlength="12" autocomplete="new-password" placeholder="New driver PIN" aria-label="New PIN for ${html(driver.name)}">
+                    <button class="button light driver-pin-reset-button" type="button" data-driver-id="${html(driver.driverId)}">Reset PIN</button>
+                </div>
             </label>`;
         }).join("") || '<p class="muted">No drivers found.</p>';
 
@@ -545,6 +549,31 @@ async function loadDrivers() {
                 });
                 setFeedback(`Driver availability updated to ${select.value}.`, true);
                 await loadDrivers();
+            } catch (error) {
+                setFeedback(error.message);
+            } finally {
+                setBusy(button, false);
+            }
+        }));
+
+        list.querySelectorAll(".driver-pin-reset-button").forEach((button) => button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const driverId = button.dataset.driverId;
+            const input = list.querySelector(`.driver-pin-reset[data-driver-id="${CSS.escape(driverId)}"]`);
+            if (!input || input.value.length < 4 || input.value.length > 12) {
+                setFeedback("Enter a new PIN between 4 and 12 characters.");
+                return;
+            }
+            if (!window.confirm("Reset this driver's login PIN? Share the new PIN securely.")) return;
+            setBusy(button, true);
+            try {
+                await apiRequest(`/drivers/${encodeURIComponent(driverId)}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ pin: input.value })
+                });
+                input.value = "";
+                setFeedback("Driver PIN reset. Share the new PIN securely with the driver.", true);
             } catch (error) {
                 setFeedback(error.message);
             } finally {
