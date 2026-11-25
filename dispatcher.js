@@ -285,7 +285,7 @@ async function loadDriverPinManager() {
         }
         feedback.textContent = `${drivers.length} registered driver${drivers.length === 1 ? "" : "s"}.`;
         list.innerHTML = drivers.map((driver) => `
-            <div class="driver-pin-manager-row" style="display:grid;grid-template-columns:minmax(150px,1fr) minmax(190px,260px) auto;gap:10px;align-items:center;padding:12px 0;border-top:1px solid var(--border,#ddd)">
+            <div class="driver-pin-manager-row">
                 <div>
                     <strong>${html(driver.name || "Unnamed driver")}</strong>
                     <div class="muted">${html(driver.phone || "No phone")} · ${html(driver.status || "UNKNOWN")} / ${html(driver.verificationStatus || "UNKNOWN")}</div>
