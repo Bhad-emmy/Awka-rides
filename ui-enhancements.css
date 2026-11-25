@@ -156,3 +156,12 @@ button:not(:disabled):active,.button:not([aria-disabled="true"]):active{transfor
   html:focus-within{scroll-behavior:auto}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+/* Dispatcher driver PIN manager: keep reset controls usable on narrow screens. */
+.dispatcher-page .driver-pin-manager-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(190px,260px) auto;gap:10px;align-items:center;padding:12px 0;border-top:1px solid var(--border,#ddd)}
+.dispatcher-page .driver-pin-manager-row input{min-width:0;width:100%}
+@media(max-width:599px){
+  .dispatcher-page .driver-pin-manager-row{grid-template-columns:minmax(0,1fr) auto}
+  .dispatcher-page .driver-pin-manager-row>div{grid-column:1/-1}
+  .dispatcher-page .driver-pin-manager-row input{grid-column:1}
+  .dispatcher-page .driver-pin-manager-row button{grid-column:2;min-height:44px}
+}

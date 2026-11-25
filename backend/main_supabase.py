@@ -214,7 +214,7 @@ class DriverCreate(BaseModel):
     phone: str = Field(min_length=1)
     vehicle: str = Field(min_length=1)
     plateNumber: str = Field(min_length=1)
-    pin: str | None = Field(default=None, min_length=4, max_length=12)
+    pin: str = Field(min_length=4, max_length=12)
     status: Literal["ACTIVE", "INACTIVE", "SUSPENDED"] = "INACTIVE"
     verificationStatus: Literal["PENDING", "VERIFIED", "REJECTED"] = "PENDING"
     completedRides: int = 0
@@ -1740,7 +1740,7 @@ async def create_driver(
         "completed_rides": driver.completedRides,
         "cancelled_rides": driver.cancelledRides,
         "notes": driver.notes,
-        "pin_hash": hash_password(driver.pin or normalized_phone[-4:]),
+        "pin_hash": hash_password(driver.pin),
     }
 
     try:
@@ -2032,19 +2032,9 @@ async def driver_login(login: DriverLogin):
         stage = "pin_verification"
         pin_hash = driver.get("pin_hash")
         if not pin_hash:
-            # First-login initialization for legacy registered drivers that have
-            # no PIN yet: use the agreed last four digits of their phone number.
-            normalized_phone = str(driver.get("phone") or "").strip()
-            initial_pin = normalized_phone[-4:] if len(normalized_phone) >= 4 else ""
-            if not initial_pin or not hmac.compare_digest(login.pin, initial_pin):
-                raise HTTPException(status_code=401, detail="Invalid driver credentials.")
-            pin_hash = hash_password(initial_pin)
-            await supabase_request(
-                "PATCH",
-                SUPABASE_TABLE_DRIVERS,
-                params={"driver_id": f"eq.{driver.get('driver_id')}"},
-                json_body={"pin_hash": pin_hash},
-                action_description="initialize driver login PIN",
+            raise HTTPException(
+                status_code=409,
+                detail="Driver PIN is not set. Ask the dispatcher to reset your PIN.",
             )
         if not verify_password(login.pin, pin_hash):
             raise HTTPException(status_code=401, detail="Invalid driver credentials.")

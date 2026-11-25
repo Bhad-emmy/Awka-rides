@@ -269,6 +269,62 @@ function setBusy(button, busy) {
     button.textContent = busy ? "Working..." : button.dataset.originalText;
 }
 
+async function loadDriverPinManager() {
+    const list = $("#driver-pin-manager-list");
+    const feedback = $("#driver-pin-manager-feedback");
+    if (!list || !feedback) return;
+    feedback.textContent = "Loading registered drivers…";
+    list.innerHTML = "";
+
+    try {
+        const data = await apiRequest("/drivers");
+        const drivers = data.drivers || [];
+        if (!drivers.length) {
+            feedback.textContent = "No drivers are registered yet.";
+            return;
+        }
+        feedback.textContent = `${drivers.length} registered driver${drivers.length === 1 ? "" : "s"}.`;
+        list.innerHTML = drivers.map((driver) => `
+            <div class="driver-pin-manager-row">
+                <div>
+                    <strong>${html(driver.name || "Unnamed driver")}</strong>
+                    <div class="muted">${html(driver.phone || "No phone")} · ${html(driver.status || "UNKNOWN")} / ${html(driver.verificationStatus || "UNKNOWN")}</div>
+                </div>
+                <input class="driver-pin-manager-input" data-driver-id="${html(driver.driverId)}" type="password" minlength="4" maxlength="12" autocomplete="new-password" placeholder="New PIN (4–12 characters)" aria-label="New PIN for ${html(driver.name || "driver")}">
+                <button class="button light driver-pin-manager-reset" data-driver-id="${html(driver.driverId)}" type="button">Reset PIN</button>
+            </div>`).join("");
+    } catch (error) {
+        feedback.textContent = error.message || "Could not load registered drivers.";
+    }
+}
+
+$("#refresh-driver-pin-list")?.addEventListener("click", loadDriverPinManager);
+$("#driver-pin-manager-list")?.addEventListener("click", async (event) => {
+    const button = event.target.closest(".driver-pin-manager-reset");
+    if (!button) return;
+    const driverId = button.dataset.driverId;
+    const input = $("#driver-pin-manager-list").querySelector(`.driver-pin-manager-input[data-driver-id="${CSS.escape(driverId)}"]`);
+    const feedback = $("#driver-pin-manager-feedback");
+    if (!input || input.value.length < 4 || input.value.length > 12) {
+        feedback.textContent = "Enter a new PIN between 4 and 12 characters.";
+        return;
+    }
+    if (!window.confirm("Reset this driver's login PIN? Share the new PIN securely.")) return;
+    setBusy(button, true);
+    try {
+        await apiRequest(`/drivers/${encodeURIComponent(driverId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ pin: input.value })
+        });
+        input.value = "";
+        feedback.textContent = "PIN reset successfully. Share the new PIN securely with the driver.";
+    } catch (error) {
+        feedback.textContent = error.message || "Could not reset this driver's PIN.";
+    } finally {
+        setBusy(button, false);
+    }
+});
+
 async function refreshGeneratedDriverId() {
     const input = $("#new-driver-id");
     if (!input) return;
@@ -306,8 +362,8 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         notes: "Registered by dispatcher after identity and vehicle checks."
     };
 
-    if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || (payload.pin && payload.pin.length < 4)) {
-        setFeedback("Complete all driver fields. A blank PIN will use the last four digits of the phone number.");
+    if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || !payload.pin || payload.pin.length < 4) {
+        setFeedback("Complete all driver fields and enter a PIN of at least 4 characters.");
         return;
     }
 
@@ -324,6 +380,7 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         $("#new-driver-plate").value = "";
         refreshGeneratedDriverId();
         await refreshPaystackDriverChoices(result.driverId);
+        await loadDriverPinManager();
         document.getElementById("driver-paystack-setup").scrollIntoView({behavior:"smooth",block:"start"});
         setFeedback("Driver registered successfully. They can sign in with their phone and PIN. Verify their receiving bank below for end-of-day manual payouts.", true);
         if (state.selectedRide) await loadDrivers();
@@ -868,6 +925,7 @@ async function initialize() {
             showDispatcher();
             await refreshGeneratedDriverId();
             await initializePaystackSetup();
+            await loadDriverPinManager();
             await loadRides();
             await checkForNewRideRequests();
             startRideAlerts();

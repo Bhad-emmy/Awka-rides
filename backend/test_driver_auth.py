@@ -1,12 +1,14 @@
 import hashlib
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from backend.main_supabase import (
     AUTH_RATE_LIMIT_MAX,
     AUTH_RATE_LIMIT_WINDOW,
+    DriverCreate,
     DriverLogin,
     driver_login,
     find_driver_by_phone,
@@ -26,7 +28,7 @@ class DriverPhoneLoginTests(unittest.IsolatedAsyncioTestCase):
             "pin_hash": "stored-hash",
         }
         with (
-            patch("backend.main_supabase.enforce_shared_rate_limit", new=AsyncMock()) as rate_limit,
+            patch("backend.main_supabase.enforce_rate_limit", new=Mock()) as rate_limit,
             patch("backend.main_supabase.find_driver_by_phone", new=AsyncMock(return_value=driver)) as lookup,
             patch("backend.main_supabase.verify_password", return_value=True),
             patch("backend.main_supabase.create_driver_token", return_value="session-token"),
@@ -34,7 +36,7 @@ class DriverPhoneLoginTests(unittest.IsolatedAsyncioTestCase):
             result = await driver_login(DriverLogin(phone=" 08012345678 ", pin="1234"))
 
         lookup.assert_awaited_once_with(" 08012345678 ")
-        rate_limit.assert_awaited_once_with(
+        rate_limit.assert_called_once_with(
             "driver-login:" + hashlib.sha256(b"08012345678").hexdigest(),
             AUTH_RATE_LIMIT_MAX,
             AUTH_RATE_LIMIT_WINDOW,
@@ -46,7 +48,7 @@ class DriverPhoneLoginTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_login_rejects_unknown_phone(self):
         with (
-            patch("backend.main_supabase.enforce_shared_rate_limit", new=AsyncMock()),
+            patch("backend.main_supabase.enforce_rate_limit", new=Mock()),
             patch("backend.main_supabase.find_driver_by_phone", new=AsyncMock(return_value=None)),
         ):
             with self.assertRaises(HTTPException) as caught:
@@ -62,6 +64,37 @@ class DriverPhoneLoginTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as caught:
                 await find_driver_by_phone("08012345678")
         self.assertEqual(caught.exception.status_code, 409)
+
+
+    async def test_legacy_driver_without_pin_is_rejected_without_phone_suffix_fallback(self):
+        driver = {
+            "driver_id": "oka01",
+            "phone": "08012345678",
+            "status": "ACTIVE",
+            "verification_status": "VERIFIED",
+            "pin_hash": None,
+        }
+        with (
+            patch("backend.main_supabase.enforce_rate_limit", new=Mock()),
+            patch("backend.main_supabase.find_driver_by_phone", new=AsyncMock(return_value=driver)),
+            patch("backend.main_supabase.supabase_request", new=AsyncMock()) as database,
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                await driver_login(DriverLogin(phone="08012345678", pin="5678"))
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("Ask the dispatcher to reset", caught.exception.detail)
+        database.assert_not_awaited()
+
+
+    def test_new_driver_registration_requires_dispatcher_set_pin(self):
+        with self.assertRaises(ValidationError):
+            DriverCreate(
+                driverId="oka-new",
+                name="New Driver",
+                phone="08012345678",
+                vehicle="Keke",
+                plateNumber="ABC123XY",
+            )
 
 
 if __name__ == "__main__":
