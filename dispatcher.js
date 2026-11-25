@@ -306,8 +306,8 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         notes: "Registered by dispatcher after identity and vehicle checks."
     };
 
-    if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || (payload.pin && payload.pin.length < 4)) {
-        setFeedback("Complete all driver fields. A blank PIN will use the last four digits of the phone number.");
+    if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || !payload.pin || payload.pin.length < 4) {
+        setFeedback("Complete all driver fields and enter a PIN of at least 4 characters.");
         return;
     }
 
