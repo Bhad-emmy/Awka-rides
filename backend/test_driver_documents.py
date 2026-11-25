@@ -9,6 +9,7 @@ from backend.main_supabase import (
     create_driver,
     driver_documents_complete,
     ensure_driver_operational,
+    driver_session,
 )
 
 
@@ -77,6 +78,27 @@ class DriverDocumentVerificationTests(unittest.IsolatedAsyncioTestCase):
             result = await ensure_driver_operational("oka-existing")
         self.assertEqual(result["status"], "ACTIVE")
         self.assertEqual(result["availability_status"], "ONLINE")
+
+    async def test_legacy_driver_session_does_not_require_document_table(self):
+        driver = {
+            "driver_id": "oka-existing",
+            "name": "Existing Driver",
+            "phone": "08000000000",
+            "status": "ACTIVE",
+            "verification_status": "VERIFIED",
+            "availability_status": "BUSY",
+            "document_review_required": False,
+        }
+        with (
+            patch("backend.main_supabase.get_driver_record", new=AsyncMock(return_value=driver)),
+            patch("backend.main_supabase.driver_documents_complete", new=AsyncMock()) as documents_check,
+        ):
+            result = await driver_session("oka-existing")
+        documents_check.assert_not_awaited()
+        self.assertEqual(result["driver"]["status"], "ACTIVE")
+        self.assertEqual(result["driver"]["availabilityStatus"], "BUSY")
+        self.assertTrue(result["driver"]["documentsComplete"])
+        self.assertFalse(result["driver"]["documentReviewRequired"])
 
 
 if __name__ == "__main__":
