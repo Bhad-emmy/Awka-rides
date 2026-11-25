@@ -218,8 +218,6 @@ class DriverCreate(BaseModel):
     vehicle: str = Field(min_length=1)
     plateNumber: str = Field(min_length=1)
     pin: str = Field(min_length=4, max_length=12)
-    status: Literal["ACTIVE", "INACTIVE", "SUSPENDED"] = "INACTIVE"
-    verificationStatus: Literal["PENDING", "VERIFIED", "REJECTED"] = "PENDING"
     completedRides: int = 0
     cancelledRides: int = 0
     notes: str = ""
@@ -1991,13 +1989,10 @@ async def update_driver(
         complete, detail = await driver_documents_complete(driver_id)
         if effective_verification != "VERIFIED" or not complete:
             raise HTTPException(status_code=409, detail={"message": "Approve all current driver documents before activation.", **detail})
-    if driver.availabilityStatus == "ONLINE" and (
-        effective_status != "ACTIVE" or effective_verification != "VERIFIED"
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="Only ACTIVE and VERIFIED drivers can go ONLINE.",
-        )
+    if driver.availabilityStatus == "ONLINE":
+        complete, detail = await driver_documents_complete(driver_id)
+        if effective_status != "ACTIVE" or effective_verification != "VERIFIED" or not complete:
+            raise HTTPException(status_code=409, detail={"message": "Approve all current driver documents before setting ONLINE.", **detail})
 
     rows = await supabase_request(
         "PATCH",
