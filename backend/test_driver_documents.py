@@ -6,7 +6,9 @@ from backend.main_supabase import (
     DriverCreate,
     DriverUpdate,
     DriverDocumentReview,
+    auto_dispatch_ride,
     create_driver,
+    dispatch_options,
     driver_documents_complete,
     ensure_driver_operational,
     driver_session,
@@ -107,6 +109,57 @@ class DriverDocumentVerificationTests(unittest.IsolatedAsyncioTestCase):
         documents_check.assert_not_awaited()
         self.assertTrue(result["driver"]["documentsComplete"])
         self.assertFalse(result["driver"]["documentReviewRequired"])
+
+
+    async def test_manual_dispatch_options_include_driver_without_documents(self):
+        driver = {
+            "driver_id": "oka-incoming",
+            "name": "Incoming Driver",
+            "phone": "08000000000",
+            "vehicle": "Keke",
+            "plate_number": "ABC123XY",
+            "status": "ACTIVE",
+            "verification_status": "VERIFIED",
+            "availability_status": "ONLINE",
+            "document_review_required": True,
+        }
+        with (
+            patch("backend.main_supabase.get_ride_record", new=AsyncMock(return_value={"id": "ride-1", "status": "REQUESTED"})),
+            patch("backend.main_supabase.supabase_request", new=AsyncMock(return_value=[driver])),
+            patch("backend.main_supabase.driver_documents_complete", new=AsyncMock()) as documents_check,
+        ):
+            result = await dispatch_options("ride-1", "dispatcher")
+        documents_check.assert_not_awaited()
+        self.assertTrue(result["drivers"][0]["canAssign"])
+
+    async def test_automatic_dispatch_offers_ride_without_documents(self):
+        driver = {
+            "driver_id": "oka-incoming",
+            "name": "Incoming Driver",
+            "phone": "08000000000",
+            "vehicle": "Keke",
+            "plate_number": "ABC123XY",
+            "status": "ACTIVE",
+            "verification_status": "VERIFIED",
+            "availability_status": "ONLINE",
+            "document_review_required": True,
+        }
+        offered_ride = {"id": "ride-1", "dispatch_offer_expires_at": "2026-12-01T10:00:00+00:00"}
+        with (
+            patch("backend.main_supabase.supabase_request", new=AsyncMock(side_effect=[[driver], [driver], [offered_ride]])),
+            patch("backend.main_supabase.driver_documents_complete", new=AsyncMock()) as documents_check,
+            patch("backend.main_supabase.notify_driver_of_assignment", new=AsyncMock()),
+            patch("backend.main_supabase.write_audit_log", new=AsyncMock()),
+        ):
+            result = await auto_dispatch_ride({
+                "id": "ride-1",
+                "status": "REQUESTED",
+                "dispatch_offer_status": "NONE",
+                "dispatch_attempts": 0,
+            })
+        documents_check.assert_not_awaited()
+        self.assertEqual(result["status"], "OFFERED")
+        self.assertEqual(result["driverId"], "oka-incoming")
 
     async def test_document_review_never_changes_driver_verification_or_availability(self):
         driver = {
