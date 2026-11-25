@@ -1773,6 +1773,13 @@ async def upload_driver_document(
         raise HTTPException(status_code=422, detail="Document file is not valid base64.") from exc
     if not content or len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Document must be between 1 byte and 5 MB.")
+    signatures = {
+        "application/pdf": content.startswith(b"%PDF-"),
+        "image/jpeg": content.startswith(b"\\xff\\xd8\\xff"),
+        "image/png": content.startswith(b"\\x89PNG\\r\\n\\x1a\\n"),
+    }
+    if not signatures.get(data.mimeType, False):
+        raise HTTPException(status_code=415, detail="The file contents do not match the selected document type.")
     if data.documentType in {"DRIVER_LICENSE", "ROADWORTHINESS", "INSURANCE"} and not data.expiresAt:
         raise HTTPException(status_code=422, detail="Enter the expiry date for this document.")
     if data.expiresAt:
@@ -1807,10 +1814,6 @@ async def upload_driver_document(
         }, action_description="driver document registration")
         if not rows:
             raise HTTPException(status_code=502, detail="Document metadata was not saved.")
-        await supabase_request("PATCH", SUPABASE_TABLE_DRIVERS,
-            params={"driver_id": f"eq.{driver_id}"},
-            json_body={"status": "INACTIVE", "verification_status": "PENDING", "availability_status": "OFFLINE"},
-            action_description="driver document resubmission safety lock")
     except Exception:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -1819,6 +1822,11 @@ async def upload_driver_document(
         except httpx.HTTPError:
             pass
         raise
+    # A replacement document invalidates prior approval and forces re-review.
+    await supabase_request("PATCH", SUPABASE_TABLE_DRIVERS,
+        params={"driver_id": f"eq.{driver_id}"},
+        json_body={"status": "INACTIVE", "verification_status": "PENDING", "availability_status": "OFFLINE"},
+        action_description="driver document resubmission safety lock")
     return {"uploaded": True, "documentId": rows[0].get("id"), "status": "PENDING"}
 
 
@@ -2235,6 +2243,7 @@ async def driver_login(login: DriverLogin):
 @app.get("/api/driver/auth/session")
 async def driver_session(driver_id: str = Depends(require_driver_token)):
     driver = await get_driver_record(driver_id)
+    documents_complete, document_detail = await driver_documents_complete(driver_id)
     return {
         "authenticated": True,
         "driver": {
@@ -2246,6 +2255,8 @@ async def driver_session(driver_id: str = Depends(require_driver_token)):
             "availabilityStatus": driver.get("availability_status", "OFFLINE"),
             "status": driver.get("status", "INACTIVE"),
             "verificationStatus": driver.get("verification_status", "PENDING"),
+            "documentsComplete": documents_complete,
+            "documentsMissingOrUnapproved": document_detail["missingOrUnapproved"],
         },
     }
 
