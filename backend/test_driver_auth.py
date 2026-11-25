@@ -3,10 +3,12 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from backend.main_supabase import (
     AUTH_RATE_LIMIT_MAX,
     AUTH_RATE_LIMIT_WINDOW,
+    DriverCreate,
     DriverLogin,
     driver_login,
     find_driver_by_phone,
@@ -82,6 +84,17 @@ class DriverPhoneLoginTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.status_code, 409)
         self.assertIn("Ask the dispatcher to reset", caught.exception.detail)
         database.assert_not_awaited()
+
+
+    def test_new_driver_registration_requires_dispatcher_set_pin(self):
+        with self.assertRaises(ValidationError):
+            DriverCreate(
+                driverId="oka-new",
+                name="New Driver",
+                phone="08012345678",
+                vehicle="Keke",
+                plateNumber="ABC123XY",
+            )
 
 
 if __name__ == "__main__":
