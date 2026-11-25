@@ -6,20 +6,20 @@ async function api(path,options={}){const headers={"Content-Type":"application/j
 function message(text){$("app-message").textContent=text||""}
 function setWaiting(title,text){$("waiting-title").textContent=title;$("waiting-text").textContent=text;$("waiting-section").classList.remove("hidden")}
 function hideWaiting(){$("waiting-section").classList.add("hidden")}
-function renderDriver(){if(!driver)return;$("driver-name").textContent=driver.name||driver.driverId;const online=driver.availabilityStatus==="ONLINE";$("availability-label").textContent=online?"ONLINE":driver.availabilityStatus||"OFFLINE";$("availability-toggle").textContent=online?"Go offline":"Go online";$("availability-toggle").classList.toggle("online",online)}
+function renderDriver(){if(!driver)return;$("driver-name").textContent=driver.name||driver.driverId;const online=driver.availabilityStatus==="ONLINE";const canWork=driver.status==="ACTIVE"&&driver.verificationStatus==="VERIFIED"&&driver.documentsComplete===true;$("availability-label").textContent=online?"ONLINE":canWork?(driver.availabilityStatus||"OFFLINE"):"PENDING REVIEW";$("availability-toggle").textContent=online?"Go offline":canWork?"Go online":"Awaiting approval";$("availability-toggle").disabled=!canWork;$("availability-toggle").classList.toggle("online",online)}
 function renderOffer(offer){if(!offer){$("offer-section").classList.add("hidden");return}$("offer-section").classList.remove("hidden");$("offer-pickup").textContent=offer.pickup||"Pickup not provided";$("offer-destination").textContent=offer.destination||"Ride request";$("offer-destination-2").textContent=offer.destination||"Destination not provided";const expires=offer.dispatchOfferExpiresAt?new Date(offer.dispatchOfferExpiresAt):null;const tick=()=>{if(!expires)return;$("offer-expiry").textContent=Math.max(0,Math.ceil((expires-Date.now())/1000))+"s";if(expires<=Date.now()){clearInterval(offerTimer);renderOffer(null);poll()}};clearInterval(offerTimer);tick();offerTimer=setInterval(tick,1000);$("accept-offer").dataset.id=offer.id||"";$("reject-offer").dataset.id=offer.id||""}
 function renderRide(ride){currentRide=ride||null;if(!ride){$("current-section").classList.add("hidden");return}hideWaiting();$("current-section").classList.remove("hidden");$("current-pickup").textContent=ride.pickup||"Pickup not provided";$("current-destination").textContent=ride.destination||"Current ride";$("current-destination-2").textContent=ride.destination||"Destination not provided";$("ride-status").textContent=ride.status||"";$("current-passengers").textContent=ride.passengers?ride.passengers+" passenger(s)":"";const phone=ride.phone||ride.customerPhone||"";$("current-phone").textContent=phone?"Call customer":"";$("current-phone").href=phone?"tel:"+encodeURIComponent(phone):"#";const action=$("ride-action");if(ride.status==="PAID"){action.textContent="Mark picked up";action.disabled=false}else if(ride.status==="PICKED UP"){action.textContent="Complete ride";action.disabled=false}else{action.textContent="Waiting for payment";action.disabled=true}}
-async function login(e){e.preventDefault();$("login-message").textContent="";try{const data=await api("/driver/auth/login",{method:"POST",body:JSON.stringify({phone:$("driver-phone").value.trim(),pin:$("driver-pin").value})});token=data.token;localStorage.setItem("okaDriverToken",token);driver=data.driver;show("app");renderDriver();await poll();await loadDriverEarnings()}catch(err){$("login-message").textContent=err.message}}
+async function login(e){e.preventDefault();$("login-message").textContent="";try{const data=await api("/driver/auth/login",{method:"POST",body:JSON.stringify({phone:$("driver-phone").value.trim(),pin:$("driver-pin").value})});token=data.token;localStorage.setItem("okaDriverToken",token);driver=data.driver;show("app");renderDriver();await poll();await loadDriverDocuments();await loadDriverEarnings()}catch(err){$("login-message").textContent=err.message}}
 async function logout(){try{if(driver?.availabilityStatus==="ONLINE")await api("/driver/availability",{method:"PATCH",body:JSON.stringify({availabilityStatus:"OFFLINE"})})}catch{}token="";driver=null;localStorage.removeItem("okaDriverToken");resetDriverEarnings();clearInterval(pollTimer);clearInterval(locationTimer);show("login")}
 async function toggleAvailability(){const online=driver.availabilityStatus==="ONLINE";try{const pos=!online&&navigator.geolocation?await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:8000})):null;const body={availabilityStatus:online?"OFFLINE":"ONLINE"};if(pos){body.currentLatitude=pos.coords.latitude;body.currentLongitude=pos.coords.longitude}const data=await api("/driver/availability",{method:"PATCH",body:JSON.stringify(body)});driver.availabilityStatus=data.availabilityStatus;renderDriver();message(online?"You are offline.":"You are online and ready for rides.");await poll()}catch(err){message(err.message)}}
 async function updateLocation(){if(!driver||driver.availabilityStatus!=="ONLINE"||!navigator.geolocation)return;navigator.geolocation.getCurrentPosition(async pos=>{try{await api("/driver/availability",{method:"PATCH",body:JSON.stringify({availabilityStatus:"ONLINE",currentLatitude:pos.coords.latitude,currentLongitude:pos.coords.longitude})})}catch{}},()=>{}, {enableHighAccuracy:true,maximumAge:15000,timeout:5000})}
-async function poll(){if(!token||pollInFlight||document.hidden)return;pollInFlight=true;try{const s=await api("/driver/auth/session");driver=s.driver;renderDriver();const cur=await api("/driver/rides/current");renderRide(cur.ride);if(!cur.ride&&["ONLINE","BUSY"].includes(driver.availabilityStatus)){const offers=await api("/driver/offers");renderOffer(offers.offers?.[0]||null);if(offers.offers?.length)hideWaiting();else if(driver.availabilityStatus==="BUSY")setWaiting("Checking ride offer","Your status is busy. Looking for an active ride offer.");else setWaiting("Waiting for rides","You\'re online. New ride offers will appear here.")}else if(cur.ride){renderOffer(null)}else setWaiting("You\'re offline","Go online when you\'re ready to receive ride offers.")}catch(err){if(/authentication|session|expired|invalid/i.test(err.message)){logout()}else message(err.message)}finally{pollInFlight=false}}
+async function poll(){if(!token||pollInFlight||document.hidden)return;pollInFlight=true;try{const s=await api("/driver/auth/session");driver=s.driver;renderDriver();if(driver.status!=="ACTIVE"||driver.verificationStatus!=="VERIFIED"||driver.documentsComplete!==true){renderRide(null);renderOffer(null);const approved=driver.verificationStatus==="VERIFIED"&&driver.documentsComplete===true;setWaiting(approved?"Account awaiting activation":"Account awaiting document approval",approved?"Your documents are approved. Dispatch must activate your account before you can receive rides.":"Upload your driver licence, vehicle registration, roadworthiness certificate and insurance. Dispatch must review them before you can receive rides.");return}const cur=await api("/driver/rides/current");renderRide(cur.ride);if(!cur.ride&&["ONLINE","BUSY"].includes(driver.availabilityStatus)){const offers=await api("/driver/offers");renderOffer(offers.offers?.[0]||null);if(offers.offers?.length)hideWaiting();else if(driver.availabilityStatus==="BUSY")setWaiting("Checking ride offer","Your status is busy. Looking for an active ride offer.");else setWaiting("Waiting for rides","You\'re online. New ride offers will appear here.")}else if(cur.ride){renderOffer(null)}else setWaiting("You\'re offline","Go online when you\'re ready to receive ride offers.")}catch(err){if(/authentication|session|expired|invalid/i.test(err.message)){logout()}else message(err.message)}finally{pollInFlight=false}}
 async function accept(){const id=$("accept-offer").dataset.id;if(!id)return;try{await api("/driver/rides/"+encodeURIComponent(id)+"/accept",{method:"POST"});renderOffer(null);message("Ride accepted.");await poll()}catch(err){message(err.message);await poll()}}
 async function reject(){const id=$("reject-offer").dataset.id;if(!id)return;try{await api("/driver/rides/"+encodeURIComponent(id)+"/reject",{method:"POST"});renderOffer(null);await poll()}catch(err){message(err.message)}}
 async function rideAction(){if(!currentRide)return;const next=currentRide.status==="PAID"?"PICKED UP":currentRide.status==="PICKED UP"?"COMPLETED":null;if(!next)return;try{await api("/driver/rides/"+encodeURIComponent(currentRide.id)+"/status",{method:"PATCH",body:JSON.stringify({status:next})});message(next==="COMPLETED"?"Ride completed.":"Passenger picked up.");await poll();if(next==="COMPLETED")await loadDriverEarnings()}catch(err){message(err.message)}}
 $("login-form").addEventListener("submit",login);$("logout").addEventListener("click",logout);$("availability-toggle").addEventListener("click",toggleAvailability);$("accept-offer").addEventListener("click",accept);$("reject-offer").addEventListener("click",reject);$("ride-action").addEventListener("click",rideAction);
 show(token?"app":"login");
-if(token){poll();loadDriverEarnings()} 
+if(token){poll();loadDriverDocuments();loadDriverEarnings()} 
 pollTimer=setInterval(poll,2000);locationTimer=setInterval(updateLocation,30000);document.addEventListener("visibilitychange",()=>{if(!document.hidden)poll()});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("/driver-sw.js").catch(()=>{});
 
@@ -112,3 +112,61 @@ $("earnings-date").addEventListener("change",loadDriverEarnings);
 $("earnings-refresh").addEventListener("click",loadDriverEarnings);
 setInterval(loadDriverEarnings,60000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadDriverEarnings()});
+
+
+async function loadDriverDocuments(){
+  if(!token)return;
+  const list=$("driver-document-list");
+  if(!list)return;
+  try{
+    const data=await api("/driver/documents");
+    list.replaceChildren();
+    for(const doc of data.documents||[]){
+      const item=document.createElement("div");
+      item.className="earnings-ride";
+      const title=document.createElement("strong");
+      title.textContent=(doc.documentType||doc.document_type||"Document").replaceAll("_"," ");
+      const detail=document.createElement("small");
+      detail.textContent=(doc.status||"PENDING")+" · "+(doc.fileName||doc.file_name||"")+
+        (doc.expiresAt||doc.expires_at?" · Expires "+(doc.expiresAt||doc.expires_at):"");
+      item.append(title,detail);
+      if(doc.review_note||doc.reviewNote){
+        const note=document.createElement("small");note.textContent="Review note: "+(doc.review_note||doc.reviewNote);item.append(note);
+      }
+      list.append(item);
+    }
+    if(!list.children.length)list.textContent="No documents uploaded yet.";
+  }catch(err){list.textContent="Unable to load documents: "+err.message}
+}
+
+$("driver-document-form")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const button=$("driver-document-submit");
+  const file=$("driver-document-file").files?.[0];
+  const type=$("driver-document-type").value;
+  const expiry=$("driver-document-expiry").value;
+  const messageNode=$("driver-document-message");
+  if(!file){messageNode.textContent="Choose a document file.";return}
+  if(file.size>5*1024*1024){messageNode.textContent="File exceeds the 5 MB limit.";return}
+  if(!["application/pdf","image/jpeg","image/png"].includes(file.type)){messageNode.textContent="Only PDF, JPG and PNG files are accepted.";return}
+  if(["DRIVER_LICENSE","ROADWORTHINESS","INSURANCE"].includes(type)&&!expiry){
+    messageNode.textContent="Enter the document expiry date.";return;
+  }
+  button.disabled=true;messageNode.textContent="Uploading securely…";
+  try{
+    const bytes=new Uint8Array(await file.arrayBuffer());
+    let binary="";
+    for(let offset=0;offset<bytes.length;offset+=0x8000){
+      binary+=String.fromCharCode(...bytes.subarray(offset,offset+0x8000));
+    }
+    await api("/driver/documents",{method:"POST",body:JSON.stringify({
+      documentType:type,fileName:file.name,mimeType:file.type,
+      contentBase64:btoa(binary),expiresAt:expiry||null
+    })});
+    $("driver-document-file").value="";
+    messageNode.textContent="Uploaded. Dispatch will review this document; your current driver status and availability are unchanged.";
+    await loadDriverDocuments();
+    await poll();
+  }catch(err){messageNode.textContent=err.message}
+  finally{button.disabled=false}
+});

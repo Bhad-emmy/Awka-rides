@@ -27,7 +27,7 @@ jobs:
       - name: Run Paystack validation tests
         run: |
           python -m pip install pytest
-          python -m pytest backend/test_paystack.py backend/test_driver_auth.py backend/test_driver_payouts.py backend/test_driver_paystack_onboarding.py -q
+          python -m pytest backend/test_paystack.py backend/test_driver_auth.py backend/test_driver_payouts.py backend/test_driver_paystack_onboarding.py backend/test_driver_documents.py -q
 
   payout-sql:
     runs-on: ubuntu-latest
@@ -52,3 +52,9 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: psql -h localhost -U postgres -d payout_tests -v ON_ERROR_STOP=1 -f backend/test_driver_payouts.sql
+      - name: Verify driver document migration preserves existing drivers
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb -h localhost -U postgres driver_document_tests
+          psql -h localhost -U postgres -d driver_document_tests -v ON_ERROR_STOP=1 -f backend/test_driver_documents_migration.sql

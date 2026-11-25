@@ -60,6 +60,30 @@
       <button id="ride-action" class="primary full">Mark picked up</button>
     </section>
 
+    <section id="documents-section" class="card" aria-labelledby="documents-title">
+      <div class="section-head"><div><span class="eyebrow">ONBOARDING</span><h2 id="documents-title">Driver documents</h2></div></div>
+      <p class="muted">Upload clear, current copies. Dispatch must review all four document types before your account can be activated.</p>
+      <form id="driver-document-form">
+        <label>Document type
+          <select id="driver-document-type" required>
+            <option value="DRIVER_LICENSE">Driver's licence</option>
+            <option value="VEHICLE_REGISTRATION">Vehicle registration</option>
+            <option value="ROADWORTHINESS">Roadworthiness certificate</option>
+            <option value="INSURANCE">Vehicle insurance</option>
+          </select>
+        </label>
+        <label>Expiry date (required for licence, roadworthiness and insurance)
+          <input id="driver-document-expiry" type="date">
+        </label>
+        <label>Document file (PDF, JPG or PNG; max 5 MB)
+          <input id="driver-document-file" type="file" accept="application/pdf,image/jpeg,image/png" required>
+        </label>
+        <button id="driver-document-submit" class="primary full" type="submit">Upload document</button>
+      </form>
+      <p id="driver-document-message" class="message" role="status" aria-live="polite"></p>
+      <div id="driver-document-list" class="earnings-rides"></div>
+    </section>
+
     <section id="earnings-section" class="card earnings-card" aria-labelledby="earnings-title">
       <div class="section-head">
         <div>
@@ -93,6 +117,6 @@
   </section>
 </main>
 <footer class="oka-legal-footer" aria-label="Legal information"><span>© Ọka Rides</span><a href="/privacy.html">Privacy Policy</a><a href="/terms.html">Terms &amp; Conditions</a></footer>
-<script src="/driver.js?v=20261101-manual-daily-payout-2"></script>
+<script src="/driver.js?v=20261125-driver-document-upload-1"></script>
 </body>
 </html>

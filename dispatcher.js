@@ -357,9 +357,7 @@ $("#create-driver-form").addEventListener("submit", async (event) => {
         vehicle: $("#new-driver-vehicle").value.trim(),
         plateNumber: $("#new-driver-plate").value.trim().toUpperCase(),
         pin: $("#new-driver-pin").value || null,
-        status: "ACTIVE",
-        verificationStatus: "VERIFIED",
-        notes: "Registered by dispatcher after identity and vehicle checks."
+        notes: "Registered by dispatcher; pending driver document review."
     };
 
     if (!payload.name || !payload.phone || !payload.vehicle || !payload.plateNumber || !payload.pin || payload.pin.length < 4) {
@@ -878,6 +876,8 @@ $("#login-form").addEventListener("submit", async (event) => {
         csrfToken = session?.csrfToken || null;
         showDispatcher();
         await refreshGeneratedDriverId();
+        await loadDriverPinManager();
+        await loadDriverDocumentReviewDrivers();
         await initializePaystackSetup();
         await loadRides();
         await checkForNewRideRequests();
@@ -907,6 +907,87 @@ $("#logout-button").addEventListener("click", async () => {
     }
 });
 
+
+async function loadDriverDocumentReviewDrivers(){
+    const select=$("#document-review-driver");
+    if(!select)return;
+    try{
+        const data=await apiRequest("/drivers");
+        const selected=select.value;
+        select.innerHTML='<option value="">Choose a driver</option>'+(data.drivers||[]).map(d=>
+            `<option value="${html(d.driverId)}">${html(d.name)} · ${html(d.driverId)} · ${html(d.status)} / ${html(d.verificationStatus)}</option>`
+        ).join("");
+        if(selected)select.value=selected;
+    }catch(error){$("#driver-document-review-feedback").textContent=error.message}
+}
+
+async function loadDriverDocumentReview(){
+    const driverId=$("#document-review-driver")?.value;
+    const list=$("#driver-document-review-list");
+    const feedback=$("#driver-document-review-feedback");
+    if(!driverId){feedback.textContent="Choose a driver first.";list.replaceChildren();return}
+    feedback.textContent="Loading private document records…";list.replaceChildren();
+    try{
+        const data=await apiRequest(`/drivers/${encodeURIComponent(driverId)}/documents`);
+        const docs=data.documents||[];
+        if(!docs.length){feedback.textContent="No documents have been submitted.";return}
+        feedback.textContent=`${docs.length} document record(s). Preview links expire after 10 minutes.`;
+        const driverRows=await apiRequest("/drivers");
+        const selectedDriver=(driverRows.drivers||[]).find(item=>item.driverId===driverId);
+        if(selectedDriver?.verificationStatus==="VERIFIED"&&selectedDriver?.status!=="ACTIVE"){
+            const activate=document.createElement("button");
+            activate.type="button";activate.className="button primary";activate.textContent="Activate verified driver";
+            activate.addEventListener("click",async()=>{
+                if(!window.confirm("Activate this driver now that all required documents are approved?"))return;
+                activate.disabled=true;
+                try{
+                    await apiRequest(`/drivers/${encodeURIComponent(driverId)}`,{method:"PATCH",body:JSON.stringify({status:"ACTIVE"})});
+                    feedback.textContent="Driver activated. They can now sign in and go online.";
+                    await loadDriverDocumentReviewDrivers();await loadDriverDocumentReview();await loadDriverPinManager();
+                }catch(error){feedback.textContent=error.message;activate.disabled=false}
+            });
+            list.append(activate);
+        }
+        for(const doc of docs){
+            const card=document.createElement("div");card.className="driver-pin-manager-row";
+            const info=document.createElement("div");
+            const title=document.createElement("strong");title.textContent=String(doc.document_type||"Document").replaceAll("_"," ");
+            const detail=document.createElement("div");detail.className="muted";
+            detail.textContent=`${doc.status} · ${doc.file_name} · ${doc.expires_at?"Expires "+doc.expires_at:"No expiry date"}`;
+            info.append(title,detail);
+            if(doc.review_note){const note=document.createElement("small");note.textContent="Review note: "+doc.review_note;info.append(note)}
+            if(doc.previewUrl){const link=document.createElement("a");link.href=doc.previewUrl;link.target="_blank";link.rel="noopener noreferrer";link.textContent="Open document";info.append(link)}
+            card.append(info);
+            if(doc.status==="PENDING"){
+                const actions=document.createElement("div");actions.className="action-row";
+                for(const decision of ["APPROVED","REJECTED"]){
+                    const button=document.createElement("button");button.type="button";button.className="button "+(decision==="APPROVED"?"primary":"light");button.textContent=decision==="APPROVED"?"Approve":"Reject";
+                    button.addEventListener("click",async()=>{
+                        const note=decision==="REJECTED"?window.prompt("Reason for rejection (required):",""):"";
+                        if(decision==="REJECTED"&&!String(note||"").trim())return;
+                        button.disabled=true;
+                        try{
+                            const result=await apiRequest(`/drivers/${encodeURIComponent(driverId)}/documents/${encodeURIComponent(doc.id)}/review`,{
+                                method:"PATCH",body:JSON.stringify({status:decision,note:note||""})
+                            });
+                            feedback.textContent=result.verificationStatus==="VERIFIED"
+                                ?"All required documents are approved. Driver is VERIFIED but remains INACTIVE; activate separately after final checks."
+                                :"Decision saved. Outstanding: "+(result.missingOrUnapproved||[]).join(", ");
+                            await loadDriverDocumentReview();await loadDriverDocumentReviewDrivers();await loadDriverPinManager();
+                        }catch(error){feedback.textContent=error.message;button.disabled=false}
+                    });
+                    actions.append(button);
+                }
+                card.append(actions);
+            }
+            list.append(card);
+        }
+    }catch(error){feedback.textContent=error.message}
+}
+
+$("#refresh-driver-documents")?.addEventListener("click",loadDriverDocumentReview);
+$("#document-review-driver")?.addEventListener("change",loadDriverDocumentReview);
+
 async function initialize() {
     updateAlertsButton();
     clearInterval(alertPollTimer);
@@ -926,6 +1007,7 @@ async function initialize() {
             await refreshGeneratedDriverId();
             await initializePaystackSetup();
             await loadDriverPinManager();
+            await loadDriverDocumentReviewDrivers();
             await loadRides();
             await checkForNewRideRequests();
             startRideAlerts();
