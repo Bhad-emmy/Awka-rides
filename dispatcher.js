@@ -932,6 +932,22 @@ async function loadDriverDocumentReview(){
         const docs=data.documents||[];
         if(!docs.length){feedback.textContent="No documents have been submitted.";return}
         feedback.textContent=`${docs.length} document record(s). Preview links expire after 10 minutes.`;
+        const driverRows=await apiRequest("/drivers");
+        const selectedDriver=(driverRows.drivers||[]).find(item=>item.driverId===driverId);
+        if(selectedDriver?.verificationStatus==="VERIFIED"&&selectedDriver?.status!=="ACTIVE"){
+            const activate=document.createElement("button");
+            activate.type="button";activate.className="button primary";activate.textContent="Activate verified driver";
+            activate.addEventListener("click",async()=>{
+                if(!window.confirm("Activate this driver now that all required documents are approved?"))return;
+                activate.disabled=true;
+                try{
+                    await apiRequest(`/drivers/${encodeURIComponent(driverId)}`,{method:"PATCH",body:JSON.stringify({status:"ACTIVE"})});
+                    feedback.textContent="Driver activated. They can now sign in and go online.";
+                    await loadDriverDocumentReviewDrivers();await loadDriverDocumentReview();await loadDriverPinManager();
+                }catch(error){feedback.textContent=error.message;activate.disabled=false}
+            });
+            list.append(activate);
+        }
         for(const doc of docs){
             const card=document.createElement("div");card.className="driver-pin-manager-row";
             const info=document.createElement("div");
