@@ -577,7 +577,7 @@ async def driver_documents_complete(driver_id: str) -> tuple[bool, dict]:
     for row in rows:
         latest.setdefault(row.get("document_type"), row)
     missing = []
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(ZoneInfo("Africa/Lagos")).date()
     for kind in sorted(DRIVER_DOCUMENT_TYPES):
         row = latest.get(kind)
         if not row or row.get("status") != "APPROVED":
@@ -1785,7 +1785,7 @@ async def upload_driver_document(
     if data.expiresAt:
         try:
             expiry = date.fromisoformat(data.expiresAt)
-            if expiry.isoformat() != data.expiresAt or expiry < datetime.now(timezone.utc).date():
+            if expiry.isoformat() != data.expiresAt or expiry < datetime.now(ZoneInfo("Africa/Lagos")).date():
                 raise ValueError("Expired or invalid")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="Expiry date must be a valid future YYYY-MM-DD date.") from exc
