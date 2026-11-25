@@ -52,11 +52,11 @@ begin
     raise exception 'Driver document table grants are not service-role-only';
   end if;
 
-  select public into bucket
-    from storage.buckets
-   where id = 'oka-rides-driver-documents';
+  select b.public as is_public into bucket
+    from storage.buckets b
+   where b.id = 'oka-rides-driver-documents';
 
-  if not found or bucket.public is distinct from false then
+  if not found or bucket.is_public is distinct from false then
     raise exception 'Driver document storage bucket must be private';
   end if;
 end
