@@ -1761,6 +1761,130 @@ async def list_drivers(_: str = Depends(require_dispatcher_session)):
     return {"drivers": drivers}
 
 
+@app.post("/api/driver/documents", status_code=201)
+async def upload_driver_document(
+    data: DriverDocumentUpload,
+    driver_id: str = Depends(require_driver_token),
+):
+    driver = await get_driver_record(driver_id)
+    if driver.get("status") == "SUSPENDED":
+        raise HTTPException(status_code=403, detail="Suspended drivers cannot submit documents.")
+    try:
+        content = base64.b64decode(data.contentBase64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Document file is not valid base64.") from exc
+    if not content or len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Document must be between 1 byte and 5 MB.")
+    if data.documentType in {"DRIVER_LICENSE", "ROADWORTHINESS", "INSURANCE"} and not data.expiresAt:
+        raise HTTPException(status_code=422, detail="Enter the expiry date for this document.")
+    if data.expiresAt:
+        try:
+            expiry = date.fromisoformat(data.expiresAt)
+            if expiry.isoformat() != data.expiresAt or expiry < datetime.now(timezone.utc).date():
+                raise ValueError("Expired or invalid")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Expiry date must be a valid future YYYY-MM-DD date.") from exc
+    extension = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png"}[data.mimeType]
+    owner_folder = hashlib.sha256(driver_id.encode("utf-8")).hexdigest()[:20]
+    object_path = f"{owner_folder}/{secrets.token_hex(16)}{extension}"
+    url, service_key = supabase_settings()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            stored = await client.post(
+                f"{url}/storage/v1/object/{DRIVER_DOCUMENT_BUCKET}/{object_path}",
+                headers={"apikey": service_key, "Authorization": f"Bearer {service_key}",
+                         "Content-Type": data.mimeType, "x-upsert": "false"},
+                content=content,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Could not upload the document securely.") from exc
+    if stored.is_error:
+        raise HTTPException(status_code=502, detail="Secure document storage rejected the upload.")
+    try:
+        rows = await supabase_request("POST", SUPABASE_TABLE_DRIVER_DOCUMENTS, json_body={
+            "driver_id": driver_id, "document_type": data.documentType,
+            "object_path": object_path, "file_name": data.fileName.strip(),
+            "mime_type": data.mimeType, "file_size_bytes": len(content),
+            "expires_at": data.expiresAt, "status": "PENDING",
+        }, action_description="driver document registration")
+        if not rows:
+            raise HTTPException(status_code=502, detail="Document metadata was not saved.")
+        await supabase_request("PATCH", SUPABASE_TABLE_DRIVERS,
+            params={"driver_id": f"eq.{driver_id}"},
+            json_body={"status": "INACTIVE", "verification_status": "PENDING", "availability_status": "OFFLINE"},
+            action_description="driver document resubmission safety lock")
+    except Exception:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                await client.delete(f"{url}/storage/v1/object/{DRIVER_DOCUMENT_BUCKET}/{object_path}",
+                    headers={"apikey": service_key, "Authorization": f"Bearer {service_key}"})
+        except httpx.HTTPError:
+            pass
+        raise
+    return {"uploaded": True, "documentId": rows[0].get("id"), "status": "PENDING"}
+
+
+@app.get("/api/driver/documents")
+async def list_own_driver_documents(driver_id: str = Depends(require_driver_token)):
+    rows = await supabase_request("GET", SUPABASE_TABLE_DRIVER_DOCUMENTS, params={
+        "select": "id,document_type,file_name,mime_type,file_size_bytes,expires_at,status,review_note,created_at,reviewed_at",
+        "driver_id": f"eq.{driver_id}", "order": "created_at.desc", "limit": "50",
+    }, action_description="driver's own document list")
+    return {"documents": rows}
+
+
+@app.get("/api/drivers/{driver_id}/documents")
+async def list_driver_documents(
+    driver_id: str = Path(min_length=1),
+    _: str = Depends(require_dispatcher_session),
+):
+    await get_driver_record(driver_id)
+    rows = await supabase_request("GET", SUPABASE_TABLE_DRIVER_DOCUMENTS, params={
+        "select": "id,document_type,file_name,mime_type,file_size_bytes,expires_at,status,review_note,created_at,reviewed_at,object_path",
+        "driver_id": f"eq.{driver_id}", "order": "created_at.desc", "limit": "100",
+    }, action_description="dispatcher driver document list")
+    url, service_key = supabase_settings()
+    documents = []
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for row in rows:
+            signed = await client.post(
+                f"{url}/storage/v1/object/sign/{DRIVER_DOCUMENT_BUCKET}/{row['object_path']}",
+                headers={"apikey": service_key, "Authorization": f"Bearer {service_key}"},
+                json={"expiresIn": 600},
+            )
+            if signed.is_error:
+                raise HTTPException(status_code=502, detail="Could not create a private document preview.")
+            signed_url = signed.json().get("signedURL") or signed.json().get("signedUrl")
+            documents.append({**{k: v for k, v in row.items() if k != "object_path"},
+                              "previewUrl": (url + signed_url) if signed_url and signed_url.startswith("/") else signed_url})
+    return {"documents": documents}
+
+
+@app.patch("/api/drivers/{driver_id}/documents/{document_id}/review")
+async def review_driver_document(
+    data: DriverDocumentReview,
+    driver_id: str = Path(min_length=1),
+    document_id: str = Path(min_length=1),
+    dispatcher_id: str = Depends(require_dispatcher_session),
+):
+    await get_driver_record(driver_id)
+    rows = await supabase_request("PATCH", SUPABASE_TABLE_DRIVER_DOCUMENTS, params={
+        "id": f"eq.{document_id}", "driver_id": f"eq.{driver_id}", "status": "eq.PENDING",
+    }, json_body={"status": data.status, "review_note": data.note.strip() or None,
+                  "reviewed_by": dispatcher_id, "reviewed_at": datetime.now(timezone.utc).isoformat()},
+       action_description="driver document review")
+    if not rows:
+        raise HTTPException(status_code=404, detail="Pending driver document not found.")
+    complete, detail = await driver_documents_complete(driver_id)
+    verification = "VERIFIED" if complete else ("REJECTED" if data.status == "REJECTED" else "PENDING")
+    await supabase_request("PATCH", SUPABASE_TABLE_DRIVERS, params={"driver_id": f"eq.{driver_id}"},
+        json_body={"verification_status": verification, "status": "INACTIVE", "availability_status": "OFFLINE"},
+        action_description="driver verification state update")
+    await write_audit_log("dispatcher", dispatcher_id, "driver.document_reviewed", "driver", driver_id,
+        {"document_type": rows[0].get("document_type"), "decision": data.status})
+    return {"reviewed": True, "verificationStatus": verification, **detail}
+
+
 @app.post("/api/drivers", status_code=201)
 async def create_driver(
     driver: DriverCreate,
@@ -1844,13 +1968,6 @@ async def update_driver(
     if driver.status is not None:
         fields["status"] = driver.status
     if driver.availabilityStatus is not None:
-        if driver.availabilityStatus == "ONLINE" and (
-            driver.status == "INACTIVE" or driver.verificationStatus == "REJECTED"
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="Only ACTIVE and VERIFIED drivers can go ONLINE.",
-            )
         fields["availability_status"] = driver.availabilityStatus
     if driver.currentLatitude is not None:
         fields["current_latitude"] = driver.currentLatitude
@@ -1923,6 +2040,9 @@ async def auto_dispatch_ride(ride: dict) -> dict:
             or row.get("verification_status") != "VERIFIED"
             or row.get("availability_status", "OFFLINE") != "ONLINE"
         ):
+            continue
+        documents_ok, _ = await driver_documents_complete(str(row.get("driver_id") or ""))
+        if not documents_ok:
             continue
         distance = distance_km(
             ride.get("pickup_latitude"),
@@ -2425,9 +2545,11 @@ async def dispatch_options(
 
     candidates = []
     for row in rows:
+        documents_ok, _ = await driver_documents_complete(str(row.get("driver_id") or ""))
         active_verified = (
             row.get("status") == "ACTIVE"
             and row.get("verification_status") == "VERIFIED"
+            and documents_ok
         )
         online = row.get("availability_status", "OFFLINE") == "ONLINE"
         distance = distance_km(
@@ -2483,12 +2605,8 @@ async def assign_driver(
     ride_id: str = Path(min_length=1),
     _: str = Depends(require_dispatcher_session),
 ):
-    driver = await get_driver_record(driver_id)
-    if (
-        driver.get("status") != "ACTIVE"
-        or driver.get("verification_status") != "VERIFIED"
-        or driver.get("availability_status", "OFFLINE") != "ONLINE"
-    ):
+    driver = await ensure_driver_operational(driver_id)
+    if driver.get("availability_status", "OFFLINE") != "ONLINE":
         raise HTTPException(status_code=409, detail="Driver must be ACTIVE, VERIFIED, and ONLINE before dispatch.")
 
     ride = await get_ride_record(ride_id)
