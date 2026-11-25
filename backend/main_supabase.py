@@ -2249,6 +2249,8 @@ async def driver_session(driver_id: str = Depends(require_driver_token)):
             "vehicle": driver.get("vehicle"),
             "plateNumber": driver.get("plate_number"),
             "availabilityStatus": driver.get("availability_status", "OFFLINE"),
+            "status": driver.get("status", "INACTIVE"),
+            "verificationStatus": driver.get("verification_status", "PENDING"),
         },
     }
 
@@ -2279,6 +2281,7 @@ async def driver_availability(
 
 @app.get("/api/driver/rides/current")
 async def driver_current_ride(driver_id: str = Depends(require_driver_token)):
+    await ensure_driver_operational(driver_id)
     rows = await supabase_request(
         "GET",
         SUPABASE_TABLE_RIDES,
@@ -2300,6 +2303,7 @@ async def driver_update_ride_status(
     ride_id: str = Path(min_length=1),
     driver_id: str = Depends(require_driver_token),
 ):
+    await ensure_driver_operational(driver_id)
     ride = await get_ride_record(ride_id)
     if ride.get("driver_id") != driver_id:
         raise HTTPException(status_code=403, detail="This ride is not assigned to you.")
@@ -2350,6 +2354,7 @@ async def driver_update_ride_status(
 
 @app.get("/api/driver/offers")
 async def driver_offers(driver_id: str = Depends(require_driver_token)):
+    await ensure_driver_operational(driver_id)
     rows = await supabase_request(
         "GET",
         SUPABASE_TABLE_RIDES,
@@ -2434,6 +2439,7 @@ async def driver_accept_ride(
     ride_id: str = Path(min_length=1),
     driver_id: str = Depends(require_driver_token),
 ):
+    await ensure_driver_operational(driver_id)
     ride = await get_ride_record(ride_id)
     if ride.get("driver_id") != driver_id or ride.get("dispatch_offer_status") != "OFFERED":
         raise HTTPException(status_code=409, detail="This ride is not offered to this driver.")
@@ -2468,6 +2474,7 @@ async def driver_reject_ride(
     ride_id: str = Path(min_length=1),
     driver_id: str = Depends(require_driver_token),
 ):
+    await ensure_driver_operational(driver_id)
     ride = await get_ride_record(ride_id)
     if ride.get("driver_id") != driver_id or ride.get("dispatch_offer_status") != "OFFERED":
         raise HTTPException(status_code=409, detail="This ride is not offered to this driver.")
