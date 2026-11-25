@@ -19,7 +19,7 @@ async function reject(){const id=$("reject-offer").dataset.id;if(!id)return;try{
 async function rideAction(){if(!currentRide)return;const next=currentRide.status==="PAID"?"PICKED UP":currentRide.status==="PICKED UP"?"COMPLETED":null;if(!next)return;try{await api("/driver/rides/"+encodeURIComponent(currentRide.id)+"/status",{method:"PATCH",body:JSON.stringify({status:next})});message(next==="COMPLETED"?"Ride completed.":"Passenger picked up.");await poll();if(next==="COMPLETED")await loadDriverEarnings()}catch(err){message(err.message)}}
 $("login-form").addEventListener("submit",login);$("logout").addEventListener("click",logout);$("availability-toggle").addEventListener("click",toggleAvailability);$("accept-offer").addEventListener("click",accept);$("reject-offer").addEventListener("click",reject);$("ride-action").addEventListener("click",rideAction);
 show(token?"app":"login");
-if(token){poll();loadDriverEarnings()} 
+if(token){(async()=>{await poll();await loadDriverEarnings()})()} 
 pollTimer=setInterval(poll,2000);locationTimer=setInterval(updateLocation,30000);document.addEventListener("visibilitychange",()=>{if(!document.hidden)poll()});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("/driver-sw.js").catch(()=>{});
 
@@ -83,7 +83,8 @@ function renderDriverEarnings(data){
   }
 }
 async function loadDriverEarnings(){
-  if(!token||earningsInFlight||document.hidden)return;
+  if(!token||earningsInFlight)return;
+  if(document.hidden){$("earnings-message").textContent="Earnings will load when this tab is active.";return;}
   const date=$("earnings-date").value||nigeriaBusinessDate();
   const currentToken=token;
   earningsInFlight=true;

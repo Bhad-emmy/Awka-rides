@@ -154,6 +154,18 @@ async def csrf_protection_middleware(request: Request, call_next):
     if request.url.path in CSRF_EXEMPT_PATHS:
         return await call_next(request)
 
+    # Driver API requests authenticate with an explicit bearer token. Browsers
+    # do not attach this Authorization header automatically, so CSRF protection
+    # based on ambient cookies is not applicable. Keep the origin check above,
+    # and let require_driver_token validate the bearer token on every driver
+    # endpoint. This also prevents an unrelated/stale customer cookie from
+    # being selected for a driver mutation.
+    if (
+        request.url.path.startswith("/api/driver/")
+        and request.headers.get("authorization", "").lower().startswith("bearer ")
+    ):
+        return await call_next(request)
+
     customer_cookie = request.cookies.get(CUSTOMER_SESSION_COOKIE)
     dispatcher_cookie = request.cookies.get(DISPATCHER_SESSION_COOKIE)
     csrf_header = request.headers.get("X-CSRF-Token")
